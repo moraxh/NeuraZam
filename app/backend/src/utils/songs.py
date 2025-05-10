@@ -1,43 +1,135 @@
+import librosa
 import os
 import subprocess
 import logging
+import numpy as np
+import pandas as pd
+from concurrent.futures import ProcessPoolExecutor
 
 # Must be a valid Spotify public playlist url
 SPOTIFY_PLAYLIST_URL = os.getenv("SPOTIFY_PLAYLIST_URL")
-SONGS_DIR = os.getenv("SONGS_DIR", "songs")
+SONGS_DIR = f"cache/raw_songs"
+SPECTOGRAM_DIR = f"cache/spectograms"
+DATASET_FILE = f"cache/songs.csv"
 
 if not SPOTIFY_PLAYLIST_URL:
     raise ValueError("SPOTIFY_PLAYLIST_URL must be set in the environment variables")
 
+def process_songs():
+  download_songs()
+  transform_songs()
+
 def download_songs():
-    """
-    Download songs from the Spotify playlist URL using spotdl(https://github.com/spotDL/spotify-downloader)
-    """
+  """
+  Download songs from the Spotify playlist URL using spotdl(https://github.com/spotDL/spotify-downloader)
+  """
 
-    logging.info("Checking if songs are already downloaded...")
+  logging.info("Checking if songs are already downloaded...")
 
-    # Check if spotdl is installed
-    try:
-        import spotdl
-    except ImportError:
-        raise ImportError("spotdl is not installed. Please install it using 'pip install spotdl'")
+  # Check if spotdl is installed
+  try:
+      import spotdl
+  except ImportError:
+      raise ImportError("spotdl is not installed. Please install it using 'pip install spotdl'")
 
-    # Check if the songs directory exists, if not create it
-    if not os.path.exists(SONGS_DIR):
-      os.makedirs(SONGS_DIR)
-      logging.info("Songs directory does not exist. Creating it...")
+  # Check if the songs directory exists, if not create it
+  if not os.path.exists(SONGS_DIR):
+    os.makedirs(SONGS_DIR)
+    logging.info("Songs directory does not exist. Creating it...")
+  
+  # Check if the songs directory is empty
+  if not os.listdir(SONGS_DIR):
+    logging.info("Songs directory is empty. Downloading songs...")
+
+    # Download songs from the playlist URL
+    subprocess.run(
+      ["spotdl", SPOTIFY_PLAYLIST_URL],
+      check=True,
+      cwd=SONGS_DIR,
+    )
     
-    # Check if the songs directory is empty
-    if not os.listdir(SONGS_DIR):
-      logging.info("Songs directory is empty. Downloading songs...")
+    logging.info("Songs downloaded successfully.")
+  else:
+    logging.info("Songs directory already exists. Skipping download...")
 
-      # Download songs from the playlist URL
-      subprocess.run(
-        ["spotdl", SPOTIFY_PLAYLIST_URL],
-        check=True,
-        cwd=SONGS_DIR,
-      )
-      
-      logging.info("Songs downloaded successfully.")
-    else:
-      logging.info("Songs directory already exists. Skipping download...")
+def process_and_save(chunk, sr, chunk_name, aug_name, song_name):
+  S = librosa.feature.melspectrogram(y=chunk, sr=sr, n_fft=1024, hop_length=256)
+  S_db = librosa.power_to_db(S, ref=np.max)
+  S_db = (S_db - np.mean(S_db)) / np.std(S_db)
+  file_name = f"{chunk_name}_{aug_name}.npy"
+  file_path = os.path.join(SPECTOGRAM_DIR, file_name)
+  np.save(file_path, S_db)
+  return {
+    "file_path": file_path,
+    "song_name": song_name,
+    "chunk_id": chunk_name,
+    "aug_name": aug_name
+  }
+
+def process_song(song):
+  song_path = os.path.join(SONGS_DIR, song)
+  song_name = os.path.splitext(song)[0]
+  y, sr = librosa.load(song_path, sr=None)
+
+  records = []
+
+  # Separate the song into intervals
+  chunk_duration = 3
+  samples_per_chunk = chunk_duration * sr
+
+  for i in range(0, len(y), samples_per_chunk):
+    transformed_song_name = song_name.replace(" ", "_").lower()
+    chunk_name = f"{transformed_song_name}_{i // samples_per_chunk}"
+    chunk = y[i:i+samples_per_chunk]
+
+    if len(chunk) == samples_per_chunk:
+      # Original Chunk
+      records.append(process_and_save(chunk, sr, chunk_name, "original", song_name))
+
+      # Pitch Shift
+      pitch_steps = np.random.randint(-2, 2)
+      y_pitch = librosa.effects.pitch_shift(chunk, sr=sr, n_steps=pitch_steps)
+      records.append(process_and_save(y_pitch, sr, chunk_name, "pitch_shift", song_name))
+
+      # # Time Stretch
+      # time_factor = np.random.uniform(0.8, 1.2)
+      # y_stretch = librosa.effects.time_stretch(chunk, rate=time_factor)
+      # records.append(process_and_save(y_stretch, sr, chunk_name, "time_stretch", song_name))
+
+      # # Random Gain
+      # random_gain = np.random.uniform(0.5, 1.5)
+      # y_gain = chunk * random_gain
+      # records.append(process_and_save(y_gain, sr, chunk_name, "gain", song_name))
+
+      # Random Noise
+      noise = np.random.normal(0, 0.005, chunk.shape)
+      y_noise = chunk + noise
+      records.append(process_and_save(y_noise, sr, chunk_name, "noise", song_name))
+
+      # # Random Reverb
+      # reverb = np.random.uniform(0.5, 1.5)
+      # y_reverb = librosa.effects.preemphasis(chunk, coef=reverb)
+      # records.append(process_and_save(y_reverb, sr, chunk_name, "reverb", song_name))
+
+  return records
+
+def transform_songs():
+  logging.info("Transforming songs into spectograms...")
+
+  songs = os.listdir(SONGS_DIR)
+  if os.path.exists(DATASET_FILE) and os.path.getsize(DATASET_FILE) > 0:
+    logging.info("Dataset already exists. Skipping transformation...")
+    return
+
+  os.makedirs(SPECTOGRAM_DIR, exist_ok=True)
+
+  records = []
+  with ProcessPoolExecutor() as executor:
+    results = list(executor.map(process_song, songs))
+    for r in results:
+      records.extend(r)
+
+  df = pd.DataFrame(records)
+  df.to_csv(DATASET_FILE, index=False)
+
+  logging.info("Songs transformed into spectograms successfully.")
