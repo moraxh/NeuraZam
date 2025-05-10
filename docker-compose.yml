@@ -1,0 +1,24 @@
+services:
+  frontend:
+    build: 
+      context: ./app/frontend
+      dockerfile: Dockerfile  
+    volumes:
+      - ./app/frontend:/app/frontend
+      - /app/frontend/node_modules
+    ports:
+      - "3000:3000"
+    entrypoint: ["pnpm", "dev"]
+    tty: true
+  backend:
+    build: 
+      context: ./app/backend
+      dockerfile: Dockerfile  
+    volumes:
+      - ./app/backend:/app/backend
+      - /app/backend/node_modules
+    ports:
+      - "5000:5000"
+    entrypoint: ["uvicorn", "--app-dir", "src", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+    tty: true
+  
