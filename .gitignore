@@ -22,4 +22,6 @@ __pycache__
 *.sln
 *.sw?
 
-songs/
+cache/
+
+.env
