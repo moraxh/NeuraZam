@@ -1,2 +1,7 @@
 uvicorn
 fastapi
+tqdm
+pandas
+librosa
+numpy
+scikit-learn
