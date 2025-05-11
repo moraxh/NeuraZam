@@ -57,7 +57,7 @@ def download_songs():
     logging.info("Songs directory already exists. Skipping download...")
 
 def process_and_save(chunk, sr, chunk_name, aug_name, song_name):
-  S = librosa.feature.melspectrogram(y=chunk, sr=sr, n_fft=1024, hop_length=256)
+  S = librosa.feature.melspectrogram(y=chunk, sr=sr, n_fft=512, hop_length=512, n_mels=64)
   S_db = librosa.power_to_db(S, ref=np.max)
   S_db = (S_db - np.mean(S_db)) / np.std(S_db)
   file_name = f"{chunk_name}_{aug_name}.npz"
@@ -95,25 +95,15 @@ def process_song(song):
       y_pitch = librosa.effects.pitch_shift(chunk, sr=sr, n_steps=pitch_steps)
       records.append(process_and_save(y_pitch, sr, chunk_name, "pitch_shift", song_name))
 
-      # # Time Stretch
-      # time_factor = np.random.uniform(0.8, 1.2)
-      # y_stretch = librosa.effects.time_stretch(chunk, rate=time_factor)
-      # records.append(process_and_save(y_stretch, sr, chunk_name, "time_stretch", song_name))
-
-      # # Random Gain
-      # random_gain = np.random.uniform(0.5, 1.5)
-      # y_gain = chunk * random_gain
-      # records.append(process_and_save(y_gain, sr, chunk_name, "gain", song_name))
+      # Random Gain
+      random_gain = np.random.uniform(0.5, 1.5)
+      y_gain = chunk * random_gain
+      records.append(process_and_save(y_gain, sr, chunk_name, "gain", song_name))
 
       # Random Noise
       noise = np.random.normal(0, 0.005, chunk.shape)
       y_noise = chunk + noise
       records.append(process_and_save(y_noise, sr, chunk_name, "noise", song_name))
-
-      # # Random Reverb
-      # reverb = np.random.uniform(0.5, 1.5)
-      # y_reverb = librosa.effects.preemphasis(chunk, coef=reverb)
-      # records.append(process_and_save(y_reverb, sr, chunk_name, "reverb", song_name))
 
   return records
 

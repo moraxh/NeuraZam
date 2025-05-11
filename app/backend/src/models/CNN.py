@@ -7,15 +7,14 @@ import logging
 from torch.cuda import is_available
 from torch.utils.data import DataLoader
 from datasets import get_spectograms
-from torch.cuda.amp import GradScaler
-from torch.amp import autocast
+from torch.amp import GradScaler, autocast
 from utils.songs import CACHE_PATH
 
 TRAINED_MODEL_PATH = f"{CACHE_PATH}/model.pt"
 TRAINED_MODEL_INFO_PATH = f"{CACHE_PATH}/model_info.json"
 
 # Hyperparameters
-BATCH_SIZE = 42
+BATCH_SIZE = 32
 NUM_WORKERS = 4
 SHUFFLE = True
 
@@ -28,8 +27,6 @@ logging.info(f"Using device: {device}")
 class CNN(nn.Module):
   def __init__(self, output_size):
     super(CNN, self).__init__()
-
-    self.scaler = GradScaler()
 
     self.conv_block = nn.Sequential(
       nn.Conv2d(1, 32, kernel_size=3, padding=1),
@@ -58,6 +55,8 @@ class CNN(nn.Module):
       nn.Linear(256, output_size),
     )
 
+    self.scaler = GradScaler(device)
+
     self.history = {'train_loss': [], 'val_loss': []}
     self.training_ETA = 0.0
     self.total_epochs = 0
@@ -74,13 +73,12 @@ class CNN(nn.Module):
 
   def fit(self, train_loader, test_loader, epochs=50, learning_rate=0.001):
     self.total_epochs = epochs
-    loss_function = nn.TripletMarginLoss(margin=1.0, p=2)
+    loss_function = nn.TripletMarginLoss(margin=0.5, p=2)
 
     training_epoch_duration = []
 
     optimizer = optim.Adam(self.parameters(), lr=learning_rate)
     for epoch in range(epochs):
-      logging.info(f"Epoch {epoch + 1}/{epochs}")
       start_time = time.time()
       self.current_epoch = epoch + 1
       self.train()
@@ -203,9 +201,9 @@ def initialize_model():
 
   model = CNN(num_classes).to(device)
 
-  if torch.version >= '2':
+  if torch.__version__ >= '2.0':
     model = torch.compile(model)
 
   # Start training
   logging.info(f"Starting training using {device}...")
-  model.fit(train_loader=train_loader, test_loader=test_loader, epochs=50, learning_rate=0.001)
+  model.fit(train_loader=train_loader, test_loader=test_loader, epochs=10, learning_rate=0.0001)
