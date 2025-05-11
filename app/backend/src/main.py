@@ -1,13 +1,15 @@
+import os
 import logging
+import coloredlogs
 from fastapi import FastAPI
-
-from utils.songs import process_songs
+from utils.songs import initialize_songs
+from models.CNN import initialize_model
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+coloredlogs.install(level='INFO', logger=logger, fmt='%(asctime)s [%(levelname)s] %(message)s', datefmt='%I:%M:%S %p', isatty=True)
 
-# Check if the songs are already downloaded if not download them
-process_songs()
+initialize_songs()
+initialize_model()
 
 app = FastAPI(debug=True)

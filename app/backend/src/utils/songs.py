@@ -6,16 +6,20 @@ import numpy as np
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 
+# Create cache path if not exists
+CACHE_PATH = "cache"
+os.makedirs(CACHE_PATH, exist_ok=True)
+
 # Must be a valid Spotify public playlist url
 SPOTIFY_PLAYLIST_URL = os.getenv("SPOTIFY_PLAYLIST_URL")
-SONGS_DIR = f"cache/raw_songs"
-SPECTOGRAM_DIR = f"cache/spectograms"
-DATASET_FILE = f"cache/songs.csv"
+SONGS_DIR = f"{CACHE_PATH}/raw_songs"
+SPECTOGRAMS_DIR = f"{CACHE_PATH}/spectograms"
+DATASET_FILE = f"{CACHE_PATH}/songs.csv"
 
 if not SPOTIFY_PLAYLIST_URL:
     raise ValueError("SPOTIFY_PLAYLIST_URL must be set in the environment variables")
 
-def process_songs():
+def initialize_songs():
   download_songs()
   transform_songs()
 
@@ -57,7 +61,7 @@ def process_and_save(chunk, sr, chunk_name, aug_name, song_name):
   S_db = librosa.power_to_db(S, ref=np.max)
   S_db = (S_db - np.mean(S_db)) / np.std(S_db)
   file_name = f"{chunk_name}_{aug_name}.npz"
-  file_path = os.path.join(SPECTOGRAM_DIR, file_name)
+  file_path = os.path.join(SPECTOGRAMS_DIR, file_name)
   np.savez_compressed(file_path, S_db=S_db)  # Guardamos el espectrograma comprimido
   return {
     "file_name": file_name,
@@ -121,7 +125,7 @@ def transform_songs():
     logging.info("Dataset already exists. Skipping transformation...")
     return
 
-  os.makedirs(SPECTOGRAM_DIR, exist_ok=True)
+  os.makedirs(SPECTOGRAMS_DIR, exist_ok=True)
 
   records = []
   with ProcessPoolExecutor() as executor:
