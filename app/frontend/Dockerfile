@@ -5,10 +5,11 @@ WORKDIR /app/frontend
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package.json .
+COPY package.json  .
+COPY pnpm-lock.yaml .
 
 RUN pnpm install
 
 COPY . .
 
-EXPOSE 3000
+EXPOSE 4321

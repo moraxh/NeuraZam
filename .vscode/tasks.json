@@ -17,9 +17,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Execute docker compose up",
+      "label": "Execute docker compose build --no-cache",
       "type": "shell",
-      "command": "docker-compose up",
+      "command": "docker-compose build --no-cache",
       "presentation": {
         "echo": true,
         "reveal": "always",
