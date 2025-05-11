@@ -56,11 +56,11 @@ def process_and_save(chunk, sr, chunk_name, aug_name, song_name):
   S = librosa.feature.melspectrogram(y=chunk, sr=sr, n_fft=1024, hop_length=256)
   S_db = librosa.power_to_db(S, ref=np.max)
   S_db = (S_db - np.mean(S_db)) / np.std(S_db)
-  file_name = f"{chunk_name}_{aug_name}.npy"
+  file_name = f"{chunk_name}_{aug_name}.npz"
   file_path = os.path.join(SPECTOGRAM_DIR, file_name)
-  np.save(file_path, S_db)
+  np.savez_compressed(file_path, S_db=S_db)  # Guardamos el espectrograma comprimido
   return {
-    "file_path": file_path,
+    "file_name": file_name,
     "song_name": song_name,
     "chunk_id": chunk_name,
     "aug_name": aug_name
