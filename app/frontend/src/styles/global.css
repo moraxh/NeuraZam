@@ -3,10 +3,16 @@
 @theme {
   --color-bg: #050816;
   --color-primary: #11b6fb;
+  --color-primary-50: rgb(17 182 251 / .5);
   --color-secondary: #5350f7;
   --color-accent: #a767f5;
   --font-sans: 'Roboto', sans-serif;
   --font-serif: 'Roboto', sans-serif;
+  --centered-drop-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+:root {
+ --listening-iteration-count: infinite; 
 }
 
 * {
@@ -38,22 +44,6 @@
   }
 }
 
-@keyframes pulseAnimation {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-.listening svg {
-  animation: 2s ease-out pulseAnimation infinite;
-}
-
 .listening,
 .listening > * {
   position: relative;
@@ -80,10 +70,10 @@
 
 .listening:before {
   z-index: 0;
-  animation: 1.5s 0.5s ease-out rippleAnimation infinite;
+  animation: 1.5s ease-out rippleAnimation var(--listening-iteration-count) !important;
 }
 
 .listening::after {
   z-index: 0;
-  animation: 1.5s 1s ease-out rippleAnimation infinite;
+  animation: 1.5s .75s ease-out rippleAnimation var(--listening-iteration-count) !important;
 }

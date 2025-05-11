@@ -2,10 +2,36 @@
   import { Icon } from 'astro-icon/components'
 ---
 
-<section class="flex items-center justify-center w-full pt-32">
-  <div class="listening">
-    <button class=" bg-radial from-primary to-secondary w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
+<section class="flex items-center justify-center w-full pt-40">
+  <div id="listeningButton" class="">
+    <span></span>
+    <button class="bg-radial from-primary to-secondary w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
       <Icon class="w-20 h-20" name="lucide:mic" />
     </button>
   </div>
 </section>
+
+<style>
+  button {
+    filter: drop-shadow(0 0 2rem var(--color-primary-50));
+  }
+</style>
+
+<script>
+  const handleListeningButton = () => {
+    const listeningButton = document.getElementById("listeningButton");
+    if (!listeningButton) return;
+
+    listeningButton.addEventListener("click", (e) => {
+      const el = e.currentTarget as HTMLElement;
+
+      if (el.classList.contains("listening")) {
+        el.classList.remove("listening");
+      } else {
+        el.classList.add("listening");
+      }
+    })
+  }
+
+  handleListeningButton()
+</script>
