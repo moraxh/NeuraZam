@@ -1,1 +1,89 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bg: #050816;
+  --color-primary: #11b6fb;
+  --color-secondary: #5350f7;
+  --color-accent: #a767f5;
+  --font-sans: 'Roboto', sans-serif;
+  --font-serif: 'Roboto', sans-serif;
+}
+
+* {
+  color: white;
+  @apply transition-all duration-300 ease-in-out;
+}
+
+.border-gradient-wrapper {
+  position: relative;
+  border-radius: 12px;
+  padding: 2px;
+  background: linear-gradient(
+    to right,
+    var(--color-primary), 
+    var(--color-secondary),
+    var(--color-accent)
+  );
+}
+
+.border-gradient-wrapper > * {
+  background: var(--color-bg);
+  border-radius: 10px;
+}
+
+@keyframes rippleAnimation {
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes pulseAnimation {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.listening svg {
+  animation: 2s ease-out pulseAnimation infinite;
+}
+
+.listening,
+.listening > * {
+  position: relative;
+  z-index: 1;
+}
+
+.listening::before,
+.listening::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: linear-gradient(
+    45deg,
+    var(--color-secondary),
+    var(--color-primary)
+  );
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+}
+
+.listening:before {
+  z-index: 0;
+  animation: 1.5s 0.5s ease-out rippleAnimation infinite;
+}
+
+.listening::after {
+  z-index: 0;
+  animation: 1.5s 1s ease-out rippleAnimation infinite;
+}

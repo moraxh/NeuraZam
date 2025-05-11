@@ -1,0 +1,20 @@
+---
+  import Image from "astro/components/Image.astro"
+  import logo from "@assets/logo_no_bg.png"
+---
+
+<header class="border-gradient-wrapper !rounded-none !pt-0 !ps-0 !pe-0">
+  <section class="min-w-full flex items-center justify-between p-3 px-5 !rounded-none">
+    <div class="flex items-center gap-2">
+      <span class="relative h-22 w-22">
+        <Image class="absolute h-22 w-auto z-10" src={logo} alt="logo" />
+        <Image class="absolute h-22 w-auto blur-md opacity-70 z-0" src={logo} alt="logo" />
+      </span>
+      <p class="font-bold text-4xl">NeuraZam</p>
+    </div>
+
+    <button class="border-secondary border-2 rounded-lg p-2 px-6 font-bold text-lg hover:cursor-pointer hover:bg-secondary">
+      Train Model
+    </button>
+  </section>
+</header>

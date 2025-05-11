@@ -3,12 +3,16 @@ import { defineConfig } from 'astro/config';
 
 import tailwindcss from '@tailwindcss/vite';
 
-export default defineConfig({
-    vite: {
-      server: {
-          watch: { usePolling: true }
-      },
+import icon from 'astro-icon';
 
-      plugins: [tailwindcss()],
+export default defineConfig({
+  vite: {
+    server: {
+        watch: { usePolling: true }
     },
+
+    plugins: [tailwindcss()],
+  },
+
+  integrations: [icon()],
 });
