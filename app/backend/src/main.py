@@ -53,7 +53,9 @@ async def start_model_info_websocket():
   await server.wait_closed()
 
 async def start_predicting_websocket():
-  pass
+  server = await websockets.serve(predict_websocket_handler, '0.0.0.0', 5001)
+  logger.info(f"Model Info Websocket server started on ws://localhost:5000")
+  await server.wait_closed()
 
 async def run_main():
   asyncio.create_task(start_model_info_websocket())

@@ -21,5 +21,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install spotdl
 
 EXPOSE 5000
+EXPOSE 5001
 
 COPY . .
