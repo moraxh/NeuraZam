@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.6.0-cuda11.8-cudnn9-devel
 
 WORKDIR /app/backend
 
