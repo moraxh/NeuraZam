@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     ports:
-      - "4321:4321"
+      - "3000:3000"
     entrypoint: ["pnpm", "dev"]
     tty: true
   backend:

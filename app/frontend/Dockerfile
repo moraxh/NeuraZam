@@ -12,4 +12,4 @@ RUN pnpm install
 
 COPY . .
 
-EXPOSE 4321
+EXPOSE 3000
