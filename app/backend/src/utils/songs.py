@@ -19,6 +19,8 @@ if not SPOTIFY_PLAYLIST_URL:
 def initialize_songs(current_state):
   current_state['state'] = ServerState.DOWNLOADING_SONGS
   download_songs()
+  current_state['state'] = ServerState.DOWNLOADING_METADATA
+  download_metadata()
   current_state['state'] = ServerState.PROCESSING_SONGS
   transform_songs()
 
@@ -50,10 +52,25 @@ def download_songs():
       check=True,
       cwd=SONGS_DIR,
     )
-    
+
     logging.info("Songs downloaded successfully.")
   else:
     logging.info("Songs directory already exists. Skipping download...")
+  
+def download_metadata():
+  """
+  Download metadata from the Spotify playlist URL using spotdl(
+  """
+
+  if (not os.path.exists(f"{SONGS_DIR}/metadata.json")):
+    logging.info("Metadata file does not exist. Downloading metadata...")
+    subprocess.run(
+      ["spotdl", "save", SPOTIFY_PLAYLIST_URL, "--save-file", "songs_metadata.spotdl"],
+      check=True,
+      cwd=CACHE_PATH,
+    )
+  else:
+    logging.info("Metadata already exists. Skipping download...")
 
 def process_and_save(chunk, sr, chunk_name, aug_name, song_name):
   S = librosa.feature.melspectrogram(y=chunk, sr=sr, n_fft=512, hop_length=512, n_mels=64)
@@ -115,6 +132,9 @@ def transform_songs():
     return
 
   os.makedirs(SPECTOGRAMS_DIR, exist_ok=True)
+
+  # Filter out non-audio files
+  songs = [s for s in songs if s.endswith(('.mp3', '.wav'))]
 
   records = []
   with ProcessPoolExecutor() as executor:

@@ -3,7 +3,7 @@ import asyncio
 import logging
 import websockets
 import coloredlogs
-from utils.types import ServerState, CACHE_PATH
+from utils.types import ServerState
 from utils.songs import initialize_songs
 from models.CNN import initialize_model, train_model
 
