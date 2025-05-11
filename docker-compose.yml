@@ -17,12 +17,22 @@ services:
       context: ./app/backend
       dockerfile: Dockerfile  
     volumes:
-      - ./app/backend:/app/backend
+      - ./app/backend/cache:/app/backend/cache
     env_file:
       - .env
     ports:
       - "5000:5000"
-    entrypoint: ["uvicorn", "--app-dir", "src", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+    entrypoint: ["python", "src/main.py"]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./app/backend
+          target: /app/backend
+          ignore:
+            - .git
+            - '**/node_modules'
+            - '**/__pycache__'
+            - '**/cache'
     tty: true
     shm_size: 2G
     deploy:
@@ -32,4 +42,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  

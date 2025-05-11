@@ -1,6 +1,6 @@
 coloredlogs
-fastapi
 librosa
 numpy
 pandas
 spotdl
+websockets
