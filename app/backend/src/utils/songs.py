@@ -5,10 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
-
-# Create cache path if not exists
-CACHE_PATH = "cache"
-os.makedirs(CACHE_PATH, exist_ok=True)
+from utils.types import CACHE_PATH, ServerState
 
 # Must be a valid Spotify public playlist url
 SPOTIFY_PLAYLIST_URL = os.getenv("SPOTIFY_PLAYLIST_URL")
@@ -19,8 +16,10 @@ DATASET_FILE = f"{CACHE_PATH}/songs.csv"
 if not SPOTIFY_PLAYLIST_URL:
     raise ValueError("SPOTIFY_PLAYLIST_URL must be set in the environment variables")
 
-def initialize_songs():
+def initialize_songs(current_state):
+  current_state['state'] = ServerState.DOWNLOADING_SONGS
   download_songs()
+  current_state['state'] = ServerState.PROCESSING_SONGS
   transform_songs()
 
 def download_songs():

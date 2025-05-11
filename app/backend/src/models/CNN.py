@@ -1,3 +1,4 @@
+import os
 import time
 import json
 import torch
@@ -9,6 +10,7 @@ from torch.utils.data import DataLoader
 from datasets import get_spectograms
 from torch.amp import GradScaler, autocast
 from utils.songs import CACHE_PATH
+from utils.types import ServerState
 
 TRAINED_MODEL_PATH = f"{CACHE_PATH}/model.pt"
 TRAINED_MODEL_INFO_PATH = f"{CACHE_PATH}/model_info.json"
@@ -188,13 +190,12 @@ class CNN(nn.Module):
         'val_loss': self.history['val_loss'],
     }
 
-def initialize_model():
-  logging.info(f"Initializing model...")
 
-  # Create DataLoaders for train and test sets
+def initialize_model(current_state):
+  logging.info(f"Initializing model...")
+  current_state['state'] = ServerState.LOADING_MODEL
+
   train_ds, test_ds = get_spectograms()
-  train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
-  test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
 
   # Get the number of classes
   num_classes = len(train_ds.base_dataset.dataset.classes_to_idx)
@@ -204,6 +205,22 @@ def initialize_model():
   if torch.__version__ >= '2.0':
     model = torch.compile(model)
 
-  # Start training
-  logging.info(f"Starting training using {device}...")
-  model.fit(train_loader=train_loader, test_loader=test_loader, epochs=10, learning_rate=0.0001)
+  return model
+
+def train_model(model, current_state):
+  train_ds, test_ds = get_spectograms()
+
+  # Create DataLoaders for train and test sets
+  train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
+  test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
+
+  # Check if the model is already trained
+  if (os.path.exists(TRAINED_MODEL_PATH) and os.path.exists(TRAINED_MODEL_INFO_PATH)):
+    logging.info(f"Model already trained. Loading model...")
+    model.load_trained_model()
+  else:
+    current_state['state'] = ServerState.TRAINING_MODEL
+    logging.info(f"Model not trained. Training model...")
+    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=10, learning_rate=0.0001)
+    model.save_trained_model()
+    logging.info(f"Model trained and saved.")

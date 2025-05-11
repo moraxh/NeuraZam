@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, Subset
 from sklearn.model_selection import train_test_split
-from utils.songs import DATASET_FILE, SPECTOGRAMS_DIR, CACHE_PATH
+from utils.songs import DATASET_FILE, SPECTOGRAMS_DIR
+from utils.types import CACHE_PATH
 from collections import defaultdict
 
 CLASS_MAP_CACHE = f"{CACHE_PATH}/class_map.json"
