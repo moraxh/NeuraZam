@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     ports:
-      - "5173:5173"
+      - "3000:3000"
     entrypoint: ["pnpm", "dev"]
     tty: true
   backend:
@@ -17,23 +17,13 @@ services:
       context: ./app/backend
       dockerfile: Dockerfile  
     volumes:
-      - ./app/backend/cache:/app/backend/cache
+      - ./app/backend:/app/backend
     env_file:
       - .env
     ports:
       - "5000:5000"
       - "5001:5001"
     entrypoint: ["python", "src/main.py"]
-    develop:
-      watch:
-        - action: sync+restart
-          path: ./app/backend
-          target: /app/backend
-          ignore:
-            - .git
-            - '**/node_modules'
-            - '**/__pycache__'
-            - '**/cache'
     tty: true
     shm_size: 2G
     deploy:

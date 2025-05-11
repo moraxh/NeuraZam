@@ -17,9 +17,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Execute docker compose up --watch",
+      "label": "Execute docker compose up",
       "type": "shell",
-      "command": "docker-compose up --watch",
+      "command": "docker-compose up",
       "presentation": {
         "echo": true,
         "reveal": "always",

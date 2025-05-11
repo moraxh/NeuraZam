@@ -3,7 +3,7 @@ import asyncio
 import logging
 import websockets
 import coloredlogs
-from utils.types import ServerState
+from utils.types import ServerState, ValidationException
 from utils.songs import initialize_songs
 from models.CNN import initialize_model, train_model
 
@@ -40,12 +40,25 @@ async def model_info_websocket_handler(websocket):
         current_state['data'] = []
       
       await websocket.send(json.dumps(current_state))
-
   except websockets.exceptions.ConnectionClosed:
+    await websocket.close()
+  except Exception as e:
+    logger.error(f"Error in model_info_websocket_handler: {e}")
     await websocket.close()
 
 async def predict_websocket_handler(websocket):
-  pass
+  try:
+    while True:
+      data = await websocket.recv()
+      logging.info(f"Received data: {data}")
+  except websockets.exceptions.ConnectionClosed:
+    await websocket.close()
+  except ValidationException as e:
+    logger.error(f"Validation error: {e}")
+    await websocket.send(json.dumps({"error": "Validation error"}))
+  except Exception as e:
+    logger.error(f"Error in predict_websocket_handler: {e}")
+    await websocket.close()
 
 async def start_model_info_websocket():
   server = await websockets.serve(model_info_websocket_handler, '0.0.0.0', 5000)

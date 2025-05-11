@@ -13,3 +13,8 @@ class ServerState(str, Enum):
   LOADING_MODEL = "loading_model",
   TRAINING_MODEL = "training_model",
   READY = "ready"
+
+class ValidationException(Exception):
+  def __init__(self, message):
+    super().__init__(message)
+    self.message = message

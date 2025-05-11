@@ -9,6 +9,7 @@ from utils.types import CACHE_PATH, ServerState
 
 # Must be a valid Spotify public playlist url
 SPOTIFY_PLAYLIST_URL = os.getenv("SPOTIFY_PLAYLIST_URL")
+METADATA_FILE = f"{CACHE_PATH}/songs_metadata.spotdl"
 SONGS_DIR = f"{CACHE_PATH}/raw_songs"
 SPECTOGRAMS_DIR = f"{CACHE_PATH}/spectograms"
 DATASET_FILE = f"{CACHE_PATH}/songs.csv"
@@ -62,12 +63,11 @@ def download_metadata():
   Download metadata from the Spotify playlist URL using spotdl(
   """
 
-  if (not os.path.exists(f"{SONGS_DIR}/metadata.json")):
+  if (not os.path.exists(METADATA_FILE)):
     logging.info("Metadata file does not exist. Downloading metadata...")
     subprocess.run(
-      ["spotdl", "save", SPOTIFY_PLAYLIST_URL, "--save-file", "songs_metadata.spotdl"],
+      ["spotdl", "save", SPOTIFY_PLAYLIST_URL, "--save-file", METADATA_FILE],
       check=True,
-      cwd=CACHE_PATH,
     )
   else:
     logging.info("Metadata already exists. Skipping download...")
