@@ -26,15 +26,19 @@ def initialize():
   current_state['state'] = ServerState.READY
 
 async def model_info_websocket_handler(websocket):
+  update_interval = 1
   global model
   try:
     while True:
-      await asyncio.sleep(1)
+      await asyncio.sleep(update_interval)
 
       # If model is training, append the training progress to the data list
       if current_state['state'] == ServerState.TRAINING_MODEL and type(model) is not dict:
         training_progress = model.get_training_progress()
         current_state['data'].append(training_progress)
+      elif current_state['state'] == ServerState.READY:
+        # If model is ready, send the current state at less frequent intervals
+        update_interval = 5
       else:
         # If model is not training, clear the data list
         current_state['data'] = []
