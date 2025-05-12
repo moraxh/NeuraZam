@@ -12,7 +12,10 @@
 }
 
 :root {
- --listening-iteration-count: infinite; 
+  --listening-play-state: running;
+  --listening-opacity: 100%;
+  --listening-play-state-1: running;
+  --listening-play-state-2: running;
 }
 
 * {
@@ -70,10 +73,12 @@
 
 .listening:before {
   z-index: 0;
-  animation: 1.5s ease-out rippleAnimation var(--listening-iteration-count) !important;
+  animation: 1.5s ease-out rippleAnimation infinite;
+  animation-play-state: var(--listening-play-state-1) !important;
 }
 
 .listening::after {
   z-index: 0;
-  animation: 1.5s .75s ease-out rippleAnimation var(--listening-iteration-count) !important;
+  animation: 1.5s .75s ease-out rippleAnimation infinite;
+  animation-play-state: var(--listening-play-state-2) !important;
 }

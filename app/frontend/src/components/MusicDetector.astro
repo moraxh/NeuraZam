@@ -3,7 +3,7 @@
 ---
 
 <section class="flex items-center justify-center w-full pt-40">
-  <div id="listeningButton" class="">
+  <div id="listeningButton">
     <span></span>
     <button class="bg-radial from-primary to-secondary w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
       <Icon class="w-20 h-20" name="lucide:mic" />
@@ -18,16 +18,62 @@
 </style>
 
 <script>
+  const animationDurations = {
+    "--listening-play-state-1": 1500,
+    "--listening-play-state-2": 2250
+  }
+  const gapDuration = 750;
+
+  // So much mess for a simple & smooth stop animation, hate you pseudo-elements
   const handleListeningButton = () => {
     const listeningButton = document.getElementById("listeningButton");
     if (!listeningButton) return;
+
+    let startAnimationTime = 0;
+
+    const getClosestAnimationName = (delta: number) => {
+      return Object.keys(animationDurations).reduce((prev, curr) => {
+        const prevDuration = animationDurations[prev as keyof typeof animationDurations];
+        const currDuration = animationDurations[curr as keyof typeof animationDurations];
+
+        const prevDivision = delta / prevDuration
+        const currDivision = delta / currDuration
+
+        const prevDelta = Math.abs(Math.round(prevDivision) - prevDivision);
+        const currDelta = Math.abs(Math.round(currDivision) - currDivision);
+
+        return prevDelta < currDelta ? prev : curr;
+      })
+    }
+
+    const pauseAnimation = (el: HTMLElement, animationName: string) => {
+      el.style.setProperty(animationName, "paused");
+    }
+    
+    const resumeAllAnimations = (el: HTMLElement) => {
+      Object.keys(animationDurations).forEach((name) => {
+        el.style.setProperty(name, "running");
+      })
+    }
 
     listeningButton.addEventListener("click", (e) => {
       const el = e.currentTarget as HTMLElement;
 
       if (el.classList.contains("listening")) {
-        el.classList.remove("listening");
+        el.addEventListener("animationiteration", (e) => {
+          const delta = Date.now() - startAnimationTime
+          const closestName = getClosestAnimationName(delta);
+          pauseAnimation(listeningButton, closestName);
+
+          setTimeout(() => {
+            el.classList.remove("listening");
+            resumeAllAnimations(el)
+          }, gapDuration)
+
+          startAnimationTime = 0;
+        }, { once: true });
       } else {
+        startAnimationTime = Date.now();
         el.classList.add("listening");
       }
     })
