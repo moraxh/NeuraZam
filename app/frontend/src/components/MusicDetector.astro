@@ -1,6 +1,47 @@
 ---
   import { Icon } from 'astro-icon/components'
+  import Spinner from './Spinner.astro'
+  import SpinnerFailed from './SpinnerFailed.astro'
 ---
+
+<dialog id="stateDialog" class="bg-transparent backdrop:bg-black/70 border-none outline-none absolute min-w-screen w-screen min-h-screen h-screen text-center z-50 top-0">
+  <div id="stateVerbose" class="flex flex-col justify-start items-center gap-10 sm:gap-20 py-16 px-5 sm:py-27 sm:px-10 h-full">
+    <section class="flex flex-col justify-center gap-2">
+      <h2 class="text-3xl sm:text-7xl font-bold">The model is being trained</h2>
+      <p class="sm:text-3xl opacity-60">Please wait until the process is finished...</p>
+    </section>
+
+    <!-- Spinner -->
+    <section id="spinner" class="flex justify-center items-center h-full">
+      <Spinner />
+    </section>
+
+    <!-- Chart and progress bar -->
+    <section id="chart_progress" class="flex flex-col justify-between h-full" hidden>
+      <div class="h-64 sm:h-96 flex justify-center items-center">
+        <canvas class="max-w-[90vw]" id="modelTrainingChart"></canvas>
+      </div>
+
+      <div class="flex flex-col gap-2 items-center justify-center w-full max-w-screen">
+        <p id="modelTrainingProgressText" class="text-5xl sm:text-7xl">50%</p>
+        <progress id="modelTrainingProgress" class="w-[900px] max-w-[90%] h-2 sm:h-2.5" max="100" value="0"></progress>
+        <p id="modelTrainingETA" class="text-white/50 text-lg"></p>
+      </div>
+    </section>
+  </div>
+
+  <div id="stateFailed" class="flex flex-col justify-start items-center gap-20 py-16 px-5 sm:py-27 sm:px-10 h-full" hidden>
+    <section class="flex flex-col justify-center gap-2">
+      <h2 class="text-5xl sm:text-7xl font-bold">Cannot connect to the server</h2>
+      <p class="text-xl sm:text-3xl opacity-60">Retrying the connection...</p>
+    </section>
+
+    <!-- Spinner failed -->
+    <section id="spinner" class="flex justify-center items-center h-full">
+      <SpinnerFailed />
+    </section>
+  </div>
+</dialog>
 
 <section class="flex items-center justify-center w-full pt-40">
   <div id="listeningButton">
@@ -12,22 +53,189 @@
 </section>
 
 <style>
+  @import url('../styles/global.css');
+
   button {
     filter: drop-shadow(0 0 2rem var(--color-primary-50));
+  }
+
+  #stateDialog {
+    transition: all .2s ease-in-out;
+    opacity: 0;
+    scale: .5;
+  }
+
+  #stateDialog.show {
+    opacity: 1;
+    scale: 1;
+  }
+
+  #stateDialog.show[open]::backdrop {
+    animation: backdropBlur .2s ease-in-out forwards;
+    animation-delay: .2s;
+  }
+
+  @keyframes backdropBlur {
+    0% {
+      backdrop-filter: blur(0px);
+    }
+    100% {
+      backdrop-filter: blur(5px);
+    } 
+  }
+
+  #modelTrainingProgress::-webkit-progress-bar {
+    @apply rounded-full overflow-hidden bg-zinc-800;
+  }
+
+  #modelTrainingProgress::-webkit-progress-value {
+    @apply bg-white;
   }
 </style>
 
 <script>
-  const animationDurations = {
-    "--listening-play-state-1": 1500,
-    "--listening-play-state-2": 2250
+  import { ChartManager, UIManager } from "../lib/chartManager"
+  import type { TrainingData } from "../lib/chartManager"
+
+  const handleServerState = () => {
+    // Chart
+    const modelTrainingChart = document.getElementById("modelTrainingChart") as HTMLCanvasElement;
+    const modelTrainingProgress = document.getElementById("modelTrainingProgress") as HTMLProgressElement;
+    const modelTrainingProgressText = document.getElementById("modelTrainingProgressText") as HTMLParagraphElement;
+    const modelTrainingETA = document.getElementById("modelTrainingETA") as HTMLParagraphElement;
+
+    if (!modelTrainingChart || !modelTrainingProgress || !modelTrainingProgressText || !modelTrainingETA) return;
+
+    const uiManager = new UIManager(modelTrainingProgress, modelTrainingProgressText, modelTrainingETA);
+    const chartManager = new ChartManager(modelTrainingChart, uiManager)
+
+    const stateDialog = document.getElementById("stateDialog") as HTMLDialogElement;
+
+    if (!stateDialog) return;
+
+    const stateVerbose = stateDialog.querySelector("#stateVerbose") as HTMLDivElement;
+    const stateFailed = stateDialog.querySelector("#stateFailed") as HTMLDivElement;
+
+    const stateSpinner = stateDialog.querySelector("#spinner") as HTMLDivElement;
+    const stateChartProgress = stateDialog.querySelector("#chart_progress") as HTMLDivElement;
+
+    const stateDialogH2 = stateDialog.querySelector("h2") as HTMLHeadingElement;
+    const stateDialogP = stateDialog.querySelector("p") as HTMLParagraphElement;
+
+    const showStateDialog = () => {
+      stateDialog.showModal();
+      stateDialog.classList.add("show");
+    }
+
+    const showStateVerbose = () => {
+      stateVerbose.hidden = false;
+      stateFailed.hidden = true;
+      showStateDialog()
+    }
+
+    const showStateFailed = () => {
+      stateVerbose.hidden = true;
+      stateFailed.hidden = false;
+      showStateDialog()
+    }
+
+    const hideStateDialog = () => {
+      stateDialog.classList.remove("show");
+      setTimeout(() => {
+        stateDialog.close();
+      }, 200);
+    }
+
+    const showSpinner = () => {
+      stateSpinner.hidden = false;
+      stateChartProgress.hidden = true;
+    }
+
+    const showChart = () => {
+      stateSpinner.hidden = true;
+      stateChartProgress.hidden = false;
+    }
+
+    let socket: WebSocket | null = null;
+    const reconnectDelay = 5000;
+
+    // Connect to the websocket server
+    const connect = () => {
+      socket = new WebSocket("ws://localhost:5000")
+
+      socket.addEventListener("open", () => {
+        console.log("Connected to the server");
+      });
+
+      socket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          if (message.state === "ready") {
+            hideStateDialog();
+            return
+          } else {
+            showStateVerbose();
+          }
+          
+          if (message.state === "training_model") 
+            showChart()
+          else
+            showSpinner()
+
+          if (message.state === "loading_server") {
+            stateDialogH2.innerText = "The server is loading"
+          } else if (message.state === "downloading_songs") {
+            stateDialogH2.innerText = "Downloading songs"
+          } else if (message.state === "downloading_metadata") {
+            stateDialogH2.innerText = "Downloading song's metadata"
+          } else if (message.state === "processing_songs") {
+            stateDialogH2.innerText = "Processing songs"
+          } else if (message.state === "loading_model") {
+            stateDialogH2.innerText = "The model is loading"
+          } else if (message.state === "training_model") {
+            stateDialogH2.innerText = "The model is being trained"
+            if (message.data) {
+              const data = message.data as TrainingData;
+              chartManager.update(data)
+            }
+          } 
+        } catch (error) {
+          console.error("Error parsing message: ", error);
+          return;
+        }
+      })
+
+      socket.addEventListener("close", () => {
+        console.log("Disconnected from the server");
+        showStateFailed();
+        attemptReconnect();
+      });
+
+      socket.addEventListener("error", (error) => {
+        console.error("WebSocket error: ", error);
+        showStateFailed();
+        socket?.close();
+      });
+    }
+
+    const attemptReconnect = () => {
+      setTimeout(connect, reconnectDelay)
+    }
+
+    connect();
   }
-  const gapDuration = 750;
 
   // So much mess for a simple & smooth stop animation, hate you pseudo-elements
   const handleListeningButton = () => {
     const listeningButton = document.getElementById("listeningButton");
     if (!listeningButton) return;
+
+    const animationDurations = {
+      "--listening-play-state-1": 1500,
+      "--listening-play-state-2": 2250
+    }
+    const gapDuration = 750;
 
     let startAnimationTime = 0;
 
@@ -56,28 +264,37 @@
       })
     }
 
+    const stopAnimation = (el: HTMLElement) => {
+      el.addEventListener("animationiteration", (e) => {
+        const delta = Date.now() - startAnimationTime
+        const closestName = getClosestAnimationName(delta);
+        pauseAnimation(listeningButton, closestName);
+
+        setTimeout(() => {
+          el.classList.remove("listening");
+          resumeAllAnimations(el)
+        }, gapDuration)
+
+        startAnimationTime = 0;
+      }, { once: true });
+    }
+
+    const startAnimation = (el: HTMLElement) => {
+      startAnimationTime = Date.now();
+      el.classList.add("listening");
+    }
+
     listeningButton.addEventListener("click", (e) => {
       const el = e.currentTarget as HTMLElement;
 
-      if (el.classList.contains("listening")) {
-        el.addEventListener("animationiteration", (e) => {
-          const delta = Date.now() - startAnimationTime
-          const closestName = getClosestAnimationName(delta);
-          pauseAnimation(listeningButton, closestName);
-
-          setTimeout(() => {
-            el.classList.remove("listening");
-            resumeAllAnimations(el)
-          }, gapDuration)
-
-          startAnimationTime = 0;
-        }, { once: true });
+      if (!el.classList.contains("listening")) {
+        startAnimation(el);
       } else {
-        startAnimationTime = Date.now();
-        el.classList.add("listening");
+        stopAnimation(el);
       }
     })
   }
 
   handleListeningButton()
+  handleServerState()
 </script>

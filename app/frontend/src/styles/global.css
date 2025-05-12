@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Titan+One&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -6,8 +7,6 @@
   --color-primary-50: rgb(17 182 251 / .5);
   --color-secondary: #5350f7;
   --color-accent: #a767f5;
-  --font-sans: 'Roboto', sans-serif;
-  --font-serif: 'Roboto', sans-serif;
   --centered-drop-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
@@ -19,8 +18,11 @@
 }
 
 * {
-  color: white;
   @apply transition-all duration-300 ease-in-out;
+  color: white;
+  font-family: "Titan One", sans-serif;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .border-gradient-wrapper {
