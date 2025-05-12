@@ -190,7 +190,6 @@ class CNN(nn.Module):
         'val_loss': self.history['val_loss'],
     }
 
-
 def initialize_model(current_state):
   logging.info(f"Initializing model...")
   current_state['state'] = ServerState.LOADING_MODEL
@@ -221,6 +220,6 @@ def train_model(model, current_state):
   else:
     current_state['state'] = ServerState.TRAINING_MODEL
     logging.info(f"Model not trained. Training model...")
-    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=10, learning_rate=0.0001)
+    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=50, learning_rate=0.0001)
     model.save_trained_model()
     logging.info(f"Model trained and saved.")

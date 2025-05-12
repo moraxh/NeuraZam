@@ -35,7 +35,7 @@ async def model_info_websocket_handler(websocket):
       # If model is training, append the training progress to the data list
       if current_state['state'] == ServerState.TRAINING_MODEL and type(model) is not dict:
         training_progress = model.get_training_progress()
-        current_state['data'].append(training_progress)
+        current_state['data'] = training_progress
       elif current_state['state'] == ServerState.READY:
         # If model is ready, send the current state at less frequent intervals
         update_interval = 5
