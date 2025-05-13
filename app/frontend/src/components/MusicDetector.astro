@@ -45,8 +45,7 @@
 
 <section class="flex items-center justify-center w-full pt-40">
   <div id="listeningButton">
-    <span></span>
-    <button class="bg-radial from-primary to-secondary w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
+    <button class="bg-radial from-primary to-secondary transition-all w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
       <Icon class="w-20 h-20" name="lucide:mic" />
     </button>
   </div>
@@ -90,6 +89,49 @@
 
   #modelTrainingProgress::-webkit-progress-value {
     @apply bg-white;
+  }
+
+  @keyframes rippleAnimation {
+    100% {
+      transform: scale(1.4);
+      opacity: 0;
+    }
+  }
+
+  .listening,
+  .listening > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .listening::before,
+  .listening::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: linear-gradient(
+      45deg,
+      var(--color-secondary),
+      var(--color-primary)
+    );
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+  }
+
+  .listening:before {
+    z-index: 0;
+    animation: 1s ease-out rippleAnimation infinite;
+    animation-play-state: var(--listening-play-state-1) !important;
+  }
+
+  .listening::after {
+    z-index: 0;
+    animation: 1s .5s ease-out rippleAnimation infinite;
+    animation-play-state: var(--listening-play-state-2) !important;
   }
 </style>
 
@@ -232,12 +274,14 @@
     if (!listeningButton) return;
 
     const animationDurations = {
-      "--listening-play-state-1": 1500,
-      "--listening-play-state-2": 2250
+      "--listening-play-state-1": 1000,
+      "--listening-play-state-2": 1500
     }
-    const gapDuration = 750;
+    const gapDuration = 500;
 
     let startAnimationTime = 0;
+    let animationIsRunning = false;
+    let animationIsStopping = false
 
     const getClosestAnimationName = (delta: number) => {
       return Object.keys(animationDurations).reduce((prev, curr) => {
@@ -273,6 +317,8 @@
         setTimeout(() => {
           el.classList.remove("listening");
           resumeAllAnimations(el)
+          animationIsStopping = false;
+          animationIsRunning = false;
         }, gapDuration)
 
         startAnimationTime = 0;
@@ -287,9 +333,14 @@
     listeningButton.addEventListener("click", (e) => {
       const el = e.currentTarget as HTMLElement;
 
-      if (!el.classList.contains("listening")) {
+
+      if (!el.classList.contains("listening") && !animationIsRunning) {
         startAnimation(el);
+        animationIsRunning = true;
       } else {
+        if (animationIsStopping) return;
+
+        animationIsStopping = true
         stopAnimation(el);
       }
     })
