@@ -2,22 +2,23 @@ import os
 import time
 import json
 import torch
+import logging
 import torch.nn as nn
 import torch.optim as optim
-import logging
 from torch.cuda import is_available
-from torch.utils.data import DataLoader
-from datasets import get_spectograms
-from torch.amp import GradScaler, autocast
 from utils.songs import CACHE_PATH
 from utils.types import ServerState
+from datasets import get_spectograms
+from torch.utils.data import DataLoader
+from torch.amp import GradScaler, autocast
+from pytorch_metric_learning import miners, losses
 
 TRAINED_MODEL_PATH = f"{CACHE_PATH}/model.pt"
 TRAINED_MODEL_INFO_PATH = f"{CACHE_PATH}/model_info.json"
 
 # Hyperparameters
 BATCH_SIZE = 32
-NUM_WORKERS = 4
+NUM_WORKERS = 2
 SHUFFLE = True
 
 def get_device():
@@ -27,23 +28,26 @@ device = get_device()
 logging.info(f"Using device: {device}")
 
 class CNN(nn.Module):
-  def __init__(self, output_size):
+  def __init__(self, output_size=256):
     super(CNN, self).__init__()
 
     self.conv_block = nn.Sequential(
       nn.Conv2d(1, 32, kernel_size=3, padding=1),
       nn.BatchNorm2d(32),
       nn.ReLU(),
+      nn.Dropout2d(0.1),
       nn.MaxPool2d(2),
       
       nn.Conv2d(32, 64, kernel_size=3, padding=1),
       nn.BatchNorm2d(64),
       nn.ReLU(),
+      nn.Dropout2d(0.1),
       nn.MaxPool2d(2),
 
       nn.Conv2d(64, 128, kernel_size=3, padding=1),
       nn.BatchNorm2d(128),
       nn.ReLU(),
+      nn.Dropout2d(0.1),
       nn.MaxPool2d(2),
 
       nn.AdaptiveAvgPool2d((4, 4))
@@ -53,7 +57,7 @@ class CNN(nn.Module):
       nn.Flatten(),
       nn.Linear(128 * 4 * 4, 256),
       nn.ReLU(),
-      nn.Dropout(0.3),
+      nn.Dropout(0.2),
       nn.Linear(256, output_size),
     )
 
@@ -70,36 +74,41 @@ class CNN(nn.Module):
 
     x = self.conv_block(x)
     x = self.embedding(x)
+    x = nn.functional.normalize(x, p=2, dim=1) # L2 normalization
 
     return x
 
-  def fit(self, train_loader, test_loader, epochs=50, learning_rate=0.001):
+  def fit(self, train_loader, test_loader, epochs=50, learning_rate=0.001, patience=7):
     self.total_epochs = epochs
-    loss_function = nn.TripletMarginLoss(margin=0.5, p=2)
-
     training_epoch_duration = []
 
-    optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+    loss_function = losses.TripletMarginLoss(margin=0.5)
+    miner = miners.TripletMarginMiner(margin=0.5, type_of_triplets="semi-hard")
+
+    optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5)
+
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
+
     for epoch in range(epochs):
-      start_time = time.time()
-      self.current_epoch = epoch + 1
       self.train()
       epoch_loss = 0.0
+      start_time = time.time()
+      self.current_epoch = epoch
 
-      for anchor, positive, negative in train_loader:
-        
-        anchor = anchor.to(device, non_blocking=True)
-        positive = positive.to(device, non_blocking=True)
-        negative = negative.to(device, non_blocking=True)
+      for spectogram, label in train_loader:
+        spectogram = spectogram.to(device, non_blocking=True)
+        labels = label.to(device, non_blocking=True)
 
         optimizer.zero_grad()
 
         with autocast(device_type=device):
-          anchor_embed = self(anchor)
-          positive_embed = self(positive)
-          negative_embed = self(negative)
-          loss = loss_function(anchor_embed, positive_embed, negative_embed)
-
+          embeddings = self(spectogram)
+          hard_triplets = miner(embeddings, labels)
+          loss = loss_function(embeddings, labels, hard_triplets)
+        
         self.scaler.scale(loss).backward()
         self.scaler.step(optimizer)
         self.scaler.update()
@@ -107,40 +116,64 @@ class CNN(nn.Module):
         epoch_loss += loss.item()
       
       # Calculate the average loss for the epoch
-      train_loss = epoch_loss / len(train_loader)
-      self.history['train_loss'].append(train_loss)
+      avg_train_loss = epoch_loss / len(train_loader)
+      self.history['train_loss'].append(avg_train_loss)
 
       # Validation
-      self.eval()
       val_loss = 0.0
+      self.eval()
       with torch.no_grad():
-        for anchor, positive, negative in test_loader:
-          anchor = anchor.to(device, non_blocking=True)
-          positive = positive.to(device, non_blocking=True)
-          negative = negative.to(device, non_blocking=True)
+        for spectogram, labels in test_loader:
+          spectogram = spectogram.to(device, non_blocking=True)
+          labels = labels.to(device, non_blocking=True)
 
           with autocast(device_type=device):
-            anchor_embed = self(anchor)
-            positive_embed = self(positive)
-            negative_embed = self(negative)
-            loss = loss_function(anchor_embed, positive_embed, negative_embed)
-
+            embeddings = self(spectogram)
+            hard_triplets = miner(embeddings, labels)
+            loss = loss_function(embeddings, labels, hard_triplets)
           val_loss += loss.item()
       
-      val_loss /= len(test_loader)
-      self.history['val_loss'].append(val_loss)
+      avg_val_loss = val_loss / len(test_loader)
+      self.history['val_loss'].append(avg_val_loss)
+      scheduler.step(avg_val_loss)
+
+      # Early stopping
+      if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_model_state = self.state_dict()    
+        patience_counter = 0
+      else:
+        patience_counter += 1
+        if patience_counter >= patience:
+          logging.info(f"Early stopping at epoch {epoch}/{epochs}")
+          break
 
       # Calculate the training ETA
       elapsed_time = time.time() - start_time
       training_epoch_duration.append(elapsed_time)
       self.training_ETA = (sum(training_epoch_duration) / (self.current_epoch + 1)) * (self.total_epochs - self.current_epoch)
 
-      logging.info(f"Epoch {self.current_epoch}/{self.total_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - ETA: {self.training_ETA:.2f}s")
+      logging.info(f"Epoch {self.current_epoch}/{self.total_epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f} - ETA: {self.training_ETA:.2f}s")
     
+    if best_model_state:
+      self.load_state_dict(best_model_state)
+      logging.info(f"Best model loaded from epoch {self.current_epoch}/{self.total_epochs}")
     self.is_model_trained = True
 
   def predict(self, X):
-    pass
+    self.eval()
+    
+    if isinstance(X, list):
+      spectrograms = torch.stack(X)
+    elif spectrograms.ndim == 2:
+      spectrograms = X.unsqueeze(0)
+
+    spectrograms = spectrograms.to(device)
+
+    with torch.no_grad(), autocast(device_type=device):
+      embeddings = self(spectrograms)
+
+    return embeddings.cpu()
 
   def save_trained_model(self):
     # Save the model
@@ -194,12 +227,7 @@ def initialize_model(current_state):
   logging.info(f"Initializing model...")
   current_state['state'] = ServerState.LOADING_MODEL
 
-  train_ds, test_ds = get_spectograms()
-
-  # Get the number of classes
-  num_classes = len(train_ds.base_dataset.dataset.classes_to_idx)
-
-  model = CNN(num_classes).to(device)
+  model = CNN().to(device)
 
   if torch.__version__ >= '2.0':
     model = torch.compile(model)
@@ -219,7 +247,7 @@ def train_model(model, current_state):
     model.load_trained_model()
   else:
     current_state['state'] = ServerState.TRAINING_MODEL
-    logging.info(f"Model not trained. Training model...")
-    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=50, learning_rate=0.0001)
+    logging.info(f"Model not trained. Training model with {device}...")
+    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=100, learning_rate=0.0001)
     model.save_trained_model()
     logging.info(f"Model trained and saved.")

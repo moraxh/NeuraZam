@@ -1,4 +1,3 @@
-import logging
 import json
 import os
 import random
@@ -37,7 +36,7 @@ class SpectogramDataset(Dataset):
     file_name = self.spectogram_data.iloc[idx]['file_name']
     file_path = os.path.join(self.spectogram_dir, file_name)
 
-    spectogram = np.load(file_path)["S_db"]
+    spectogram = np.load(file_path)["data"]
 
     spectogram_tensor = torch.tensor(spectogram, dtype=torch.float32)
 
@@ -49,46 +48,6 @@ class SpectogramDataset(Dataset):
     
     return spectogram_tensor, label_tensor
 
-class TripletDataset(Dataset):
-  def __init__(self, base_dataset):
-    self.base_dataset = base_dataset
-
-    if isinstance(base_dataset, Subset):
-      self.labels = [base_dataset.dataset.labels[i] for i in base_dataset.indices]
-    else:
-      self.labels = base_dataset.labels
-
-    self.label_to_indices = self._group_indices_by_label()
-    self.label_to_indices_keys = list(self.label_to_indices.keys())
-
-  def _group_indices_by_label(self):
-    label_to_indices = defaultdict(list)
-    for idx, label in enumerate(self.labels):
-      label_to_indices[label].append(idx)
-    return label_to_indices
-
-  def __getitem__(self, index):
-    anchor, anchor_label = self.base_dataset[index]
-
-    # Select positive
-    positive_index = index
-    while positive_index == index:
-      key = self.label_to_indices_keys[anchor_label.item()]
-      positive_index = random.choice(self.label_to_indices[key])
-    positive, _ = self.base_dataset[positive_index]
-
-    # Select negative
-    negative_label = anchor_label.item()
-    while negative_label == anchor_label.item():
-      negative_label = random.choice(list(self.label_to_indices.keys()))
-    negative_index = random.choice(self.label_to_indices[negative_label])
-    negative, _ = self.base_dataset[negative_index]
-
-    return anchor, positive, negative
-
-  def __len__(self):
-    return len(self.base_dataset)
-
 def get_spectograms():
   # Load the dataset
   dataset = SpectogramDataset(csv_file=DATASET_FILE, spectogram_dir=SPECTOGRAMS_DIR)
@@ -99,7 +58,4 @@ def get_spectograms():
   train_subset = Subset(dataset, train_idx)
   test_subset = Subset(dataset, test_idx)
 
-  train_dataset = TripletDataset(train_subset)
-  test_dataset = TripletDataset(test_subset)
-
-  return train_dataset, test_dataset
+  return train_subset, test_subset
