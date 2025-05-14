@@ -286,9 +286,11 @@
     private mediaRecorder: MediaRecorder | null = null
     private recordingInterval: NodeJS.Timeout | null = null
     private readonly webSocket: WebSocket
+    private readonly listeningButtonAnimator: ListeningButtonAnimator
 
-    constructor(webSocket: WebSocket) {
+    constructor(webSocket: WebSocket, listeningButtonAnimator: ListeningButtonAnimator) {
       this.webSocket = webSocket
+      this.listeningButtonAnimator = listeningButtonAnimator
     }
 
     public async start(maxDuration = 21000, transmissionInterval = 3000): Promise<void> {
@@ -349,6 +351,7 @@
         clearInterval(this.recordingInterval)
         this.recordingInterval = null
       }
+      this.listeningButtonAnimator.stopAnimation()
     }
   }
 
@@ -391,10 +394,11 @@
 
         setTimeout(() => {
           this.button.classList.remove("listening")
+          this.resumeAllAnimations(this.button)
           this.animationIsStopping = false
           this.animationIsRunning = false
         }, this.gapDuration)
-      })
+      }, { once: true})
     }
 
     private getClosestAnimationName(delta: number): string {
@@ -414,6 +418,12 @@
 
     private pauseAnimation(el: HTMLElement, animationName: string): void {
       el.style.setProperty(animationName, "paused")
+    }
+
+    private resumeAllAnimations(el: HTMLElement): void {
+      Object.keys(this.animationDurations).forEach((name) => {
+        el.style.setProperty(name, "running");
+      });
     }
 
     public isAnimating(): boolean {
@@ -505,7 +515,7 @@
   function initializeListeningButton(): void {
     const predictionSocket = initializePredictionServer()
     const buttonAnimator = new ListeningButtonAnimator("listeningButton")
-    const audioRecorder = new AudioRecorder(predictionSocket)
+    const audioRecorder = new AudioRecorder(predictionSocket, buttonAnimator)
 
     const listeningButton = document.getElementById("listeningButton") as HTMLElement
     if (!listeningButton) {
@@ -518,6 +528,7 @@
         buttonAnimator.startAnimation()
         audioRecorder.start()
       } else {
+        console.log('Stop')
         audioRecorder.stop()
         buttonAnimator.stopAnimation()
       }
