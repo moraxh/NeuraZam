@@ -13,6 +13,11 @@ from torch.amp import GradScaler, autocast
 from utils.songs import CACHE_PATH, METADATA_FILE
 from pytorch_metric_learning import miners, losses
 from datasets import CLASS_MAP_CACHE, get_spectograms
+from sklearn.metrics import silhouette_score
+
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import normalize
 
 EMBEDDINGS_FILE = f"{CACHE_PATH}/embeddings.faiss"
 EMBEDDINGS_METADATA_FILE = f"{CACHE_PATH}/embeddings_metadata.json"
@@ -53,12 +58,16 @@ class CNN(nn.Module):
       nn.Dropout2d(0.1),
       nn.MaxPool2d(2),
 
-      nn.AdaptiveAvgPool2d((4, 4))
+      nn.Conv2d(128, 256, kernel_size=3, padding=1),
+      nn.BatchNorm2d(256),
+      nn.ReLU(),
+
+      nn.AdaptiveAvgPool2d((4, 4)),
     )
 
     self.embedding = nn.Sequential(
       nn.Flatten(),
-      nn.Linear(128 * 4 * 4, 256),
+      nn.Linear(256 * 4 * 4, 256),
       nn.ReLU(),
       nn.Dropout(0.2),
       nn.Linear(256, output_size),
@@ -77,7 +86,6 @@ class CNN(nn.Module):
 
     x = self.conv_block(x)
     x = self.embedding(x)
-    x = nn.functional.normalize(x, p=2, dim=1) # L2 normalization
 
     return x
 
@@ -240,6 +248,29 @@ class CNN(nn.Module):
 
     embeddings = torch.cat([train_embeddings, test_embeddings])
     labels = torch.cat([train_labels, test_labels])
+
+    print("Shape:", embeddings.shape)
+    print("Mean por dimensión:", embeddings.mean(axis=0)[:5])
+    print("Std por dimensión:", embeddings.std(axis=0)[:5])
+    print("Varianza total:", embeddings.var())
+
+    emb_np = embeddings.detach().cpu().numpy()
+    labels_np = labels.detach().cpu().numpy()
+
+    score = silhouette_score(emb_np, labels_np)
+    print(f"Silhouette score: {score:.4f}")
+
+    # Plot
+    tsne = TSNE( n_components=2, perplexity=30, learning_rate='auto', init='random', n_iter=1000, random_state=42)
+
+    embeddings_scaled = normalize(embeddings, norm='l2')
+    embeddings_2d = tsne.fit_transform(embeddings_scaled)
+
+    plt.figure(figsize=(10, 8))
+    plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], c=labels, cmap='tab10', s=10)
+    plt.title("t-SNE de los embeddings")
+    plt.tight_layout()
+    plt.imsave(f"{CACHE_PATH}/embeddings_tsne.png", embeddings_2d, cmap='tab10')
 
     embeddings = nn.functional.normalize(embeddings, p=2, dim=1) # L2 normalization
 

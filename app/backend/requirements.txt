@@ -9,3 +9,6 @@ torch_audiomentations
 pytorch_metric_learning
 pydub
 faiss-cpu
+matplotlib
+umap
+seaborn
