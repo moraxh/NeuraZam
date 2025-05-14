@@ -1,23 +1,26 @@
 import os
 import time
 import json
+import faiss
 import torch
 import logging
 import torch.nn as nn
 import torch.optim as optim
 from torch.cuda import is_available
-from utils.songs import CACHE_PATH
 from utils.types import ServerState
-from datasets import get_spectograms
 from torch.utils.data import DataLoader
 from torch.amp import GradScaler, autocast
+from utils.songs import CACHE_PATH, METADATA_FILE
 from pytorch_metric_learning import miners, losses
+from datasets import CLASS_MAP_CACHE, get_spectograms
 
+EMBEDDINGS_FILE = f"{CACHE_PATH}/embeddings.faiss"
+EMBEDDINGS_METADATA_FILE = f"{CACHE_PATH}/embeddings_metadata.json"
 TRAINED_MODEL_PATH = f"{CACHE_PATH}/model.pt"
 TRAINED_MODEL_INFO_PATH = f"{CACHE_PATH}/model_info.json"
 
 # Hyperparameters
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 NUM_WORKERS = 2
 SHUFFLE = True
 
@@ -28,7 +31,7 @@ device = get_device()
 logging.info(f"Using device: {device}")
 
 class CNN(nn.Module):
-  def __init__(self, output_size=256):
+  def __init__(self, output_size=512):
     super(CNN, self).__init__()
 
     self.conv_block = nn.Sequential(
@@ -162,16 +165,18 @@ class CNN(nn.Module):
 
   def predict(self, X):
     self.eval()
+
+    X = torch.as_tensor(X, dtype=torch.float32)
     
     if isinstance(X, list):
-      spectrograms = torch.stack(X)
-    elif spectrograms.ndim == 2:
-      spectrograms = X.unsqueeze(0)
+      X = torch.stack(X)
+    elif X.ndim == 2:
+      X = X.unsqueeze(0)
 
-    spectrograms = spectrograms.to(device)
+    X = X.to(device)
 
     with torch.no_grad(), autocast(device_type=device):
-      embeddings = self(spectrograms)
+      embeddings = self(X)
 
     return embeddings.cpu()
 
@@ -193,6 +198,56 @@ class CNN(nn.Module):
       json.dump(training_info, f)
 
     logging.info(f"Model info saved to {TRAINED_MODEL_INFO_PATH}")
+  
+  def store_embeddings(self, train_loader, test_loader):
+    # Check if the model is trained
+    if not self.is_model_trained:
+      raise Exception("Model is not trained. Please train the model before storing embeddings.")
+
+    # Store the embeddings
+    train_embeddings = []
+    train_labels = []
+    test_embeddings = []
+    test_labels = []
+
+    # Store the train embeddings
+    for spectogram, label in train_loader:
+      spectogram = spectogram.to(device, non_blocking=True)
+      labels = label.to(device, non_blocking=True)
+
+      with torch.no_grad(), autocast(device_type=device):
+        embeddings = self.predict(spectogram)
+      
+      train_embeddings.append(embeddings.cpu())
+      train_labels.append(labels.cpu())
+    
+    # Store the test embeddings 
+    for spectogram, label in test_loader:
+      spectogram = spectogram.to(device, non_blocking=True)
+      labels = label.to(device, non_blocking=True)
+
+      with torch.no_grad(), autocast(device_type=device):
+        embeddings = self.predict(spectogram)
+      
+      test_embeddings.append(embeddings.cpu())
+      test_labels.append(labels.cpu())
+
+    # Concatenate the embeddings and labels
+    train_embeddings = torch.cat(train_embeddings)
+    train_labels = torch.cat(train_labels)
+    test_embeddings = torch.cat(test_embeddings)
+    test_labels = torch.cat(test_labels)
+
+    embeddings = torch.cat([train_embeddings, test_embeddings])
+    labels = torch.cat([train_labels, test_labels])
+
+    embeddings = nn.functional.normalize(embeddings, p=2, dim=1) # L2 normalization
+
+    index = faiss.IndexFlatIP(embeddings.shape[1])
+    index = faiss.IndexIDMap(index)
+    index.add_with_ids(embeddings.numpy(), labels.numpy())
+
+    faiss.write_index(index, EMBEDDINGS_FILE)
 
   def load_trained_model(self):
     # Load the model
@@ -233,7 +288,6 @@ def initialize_model(current_state):
     model = torch.compile(model)
 
   return model
-
 def train_model(model, current_state):
   train_ds, test_ds = get_spectograms()
 
@@ -251,3 +305,37 @@ def train_model(model, current_state):
     model.fit(train_loader=train_loader, test_loader=test_loader, epochs=100, learning_rate=0.0001)
     model.save_trained_model()
     logging.info(f"Model trained and saved.")
+
+  # Check if the embeddings are already stored
+  if (os.path.exists(EMBEDDINGS_FILE) and os.path.exists(EMBEDDINGS_METADATA_FILE)):
+    logging.info(f"Embeddings already stored")
+  else:
+    current_state['state'] = ServerState.STORING_EMBEDDINGS
+    logging.info(f"Embeddings not stored. Storing embeddings...")
+
+    model.store_embeddings(train_loader=train_loader, test_loader=test_loader)
+    
+    # Store the metadata
+    with open(CLASS_MAP_CACHE, 'r') as f:
+      class_map = json.load(f)
+    
+    with open(METADATA_FILE, 'r') as f:
+      songs_metadata = json.load(f)
+    
+    metadata = {}
+
+    for name, idx in class_map.items():
+      single_metadata = next((song for song in songs_metadata if song['name'] in name), None)
+
+      metadata[idx] = {
+        'name': single_metadata.get('name', name),
+        'artist': single_metadata.get('artist', None),
+        'genres': single_metadata.get('genres', []),
+        'year': single_metadata.get('year', None),
+        'cover_url': single_metadata.get('cover_url', None),
+      }
+    
+    with open(EMBEDDINGS_METADATA_FILE, 'w') as f:
+      json.dump(metadata, f)
+
+  logging.info(f"Embeddings stored.")

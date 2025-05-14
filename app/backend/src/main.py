@@ -1,11 +1,17 @@
+import io
 import json
+import faiss
+import torch
 import asyncio
 import logging
 import websockets
+import torchaudio
 import coloredlogs
-from utils.types import ServerState, ValidationException
+from pydub import AudioSegment
 from utils.songs import initialize_songs
-from models.CNN import initialize_model, train_model
+from models.CNN import EMBEDDINGS_FILE, EMBEDDINGS_METADATA_FILE, initialize_model, train_model
+from utils.types import ServerState, ValidationException
+from torchaudio.transforms import MelSpectrogram, AmplitudeToDB
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -17,6 +23,7 @@ current_state = {
 }
 
 model = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 def initialize():
   global model
@@ -54,7 +61,57 @@ async def predict_websocket_handler(websocket):
   try:
     while True:
       data = await websocket.recv()
-      logging.info(f"Received data: {data}")
+
+      if (model.is_model_trained == False):
+        await websocket.send(json.dumps({"error": "Model is not trained yet"}))
+        continue
+
+      if (isinstance(data, bytes)):
+
+        try:
+          audio_file = io.BytesIO(data)
+          audio = AudioSegment.from_file(audio_file, format="webm")
+
+          wav_file = io.BytesIO()
+          audio.export(wav_file, format="mp3")
+          wav_file.seek(0)
+
+          waveform, sample_rate = torchaudio.load(wav_file)
+          waveform = waveform.mean(dim=0, keepdim=True)  # Mono
+          waveform = waveform.unsqueeze(0)  # [B, C, T] => [1, 1, T]
+          waveform = waveform / waveform.abs().max() # Normalize
+          waveform = waveform.to(device)  
+
+          mel_spec_transform = torch.nn.Sequential(
+            MelSpectrogram(sample_rate=sample_rate, n_fft=1024, hop_length=512, n_mels=64),
+            AmplitudeToDB()
+          )
+          mel_spec_transform = torch.jit.script(mel_spec_transform.to(device))  # Compile the model
+
+          with torch.no_grad():
+            mel_spec = mel_spec_transform(waveform)
+            mel_spec = mel_spec.squeeze(0).cpu().numpy()
+
+          result = model.predict(mel_spec)
+          result = torch.nn.functional.normalize(result, p=2, dim=1) # L2 normalization
+
+          # Get others embeddings
+          index = faiss.read_index(EMBEDDINGS_FILE)
+
+          with open(EMBEDDINGS_METADATA_FILE, 'r') as f:
+            metadata = json.load(f)
+
+          similarity, indexes = index.search(result, 5)
+
+          indexes = indexes[0]
+
+          print(indexes)
+
+
+        except Exception as e:
+          logging.error(f"Invalid audio data: {e}")
+          await websocket.send(json.dumps({"error": "Invalid audio data"}))
+          continue
   except websockets.exceptions.ConnectionClosed:
     await websocket.close()
   except ValidationException as e:
@@ -66,12 +123,10 @@ async def predict_websocket_handler(websocket):
 
 async def start_model_info_websocket():
   server = await websockets.serve(model_info_websocket_handler, '0.0.0.0', 5000)
-  logger.info(f"Model Info Websocket server started on ws://localhost:5000")
   await server.wait_closed()
 
 async def start_predicting_websocket():
   server = await websockets.serve(predict_websocket_handler, '0.0.0.0', 5001)
-  logger.info(f"Model Info Websocket server started on ws://localhost:5000")
   await server.wait_closed()
 
 async def run_main():

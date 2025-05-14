@@ -12,6 +12,7 @@ class ServerState(str, Enum):
   PROCESSING_SONGS = "processing_songs",
   LOADING_MODEL = "loading_model",
   TRAINING_MODEL = "training_model",
+  STORING_EMBEDDINGS = "storing_embeddings",
   READY = "ready"
 
 class ValidationException(Exception):
