@@ -139,213 +139,395 @@
   import { ChartManager, UIManager } from "../lib/chartManager"
   import type { TrainingData } from "../lib/chartManager"
 
-  const handleServerState = () => {
-    // Chart
-    const modelTrainingChart = document.getElementById("modelTrainingChart") as HTMLCanvasElement;
-    const modelTrainingProgress = document.getElementById("modelTrainingProgress") as HTMLProgressElement;
-    const modelTrainingProgressText = document.getElementById("modelTrainingProgressText") as HTMLParagraphElement;
-    const modelTrainingETA = document.getElementById("modelTrainingETA") as HTMLParagraphElement;
+  class StateWebSocketManager {
+    private socket: WebSocket | null = null
+    private readonly reconnectDelay = 5000
+    private readonly serverUrl: string
+    private readonly onMessage: (message: any) => void
+    private readonly onClose: () => void
+    private readonly onError: () => void
 
-    if (!modelTrainingChart || !modelTrainingProgress || !modelTrainingProgressText || !modelTrainingETA) return;
-
-    const uiManager = new UIManager(modelTrainingProgress, modelTrainingProgressText, modelTrainingETA);
-    const chartManager = new ChartManager(modelTrainingChart, uiManager)
-
-    const stateDialog = document.getElementById("stateDialog") as HTMLDialogElement;
-
-    if (!stateDialog) return;
-
-    const stateVerbose = stateDialog.querySelector("#stateVerbose") as HTMLDivElement;
-    const stateFailed = stateDialog.querySelector("#stateFailed") as HTMLDivElement;
-
-    const stateSpinner = stateDialog.querySelector("#spinner") as HTMLDivElement;
-    const stateChartProgress = stateDialog.querySelector("#chart_progress") as HTMLDivElement;
-
-    const stateDialogH2 = stateDialog.querySelector("h2") as HTMLHeadingElement;
-    const stateDialogP = stateDialog.querySelector("p") as HTMLParagraphElement;
-
-    const showStateDialog = () => {
-      stateDialog.showModal();
-      stateDialog.classList.add("show");
+    constructor(
+      serverUrl: string,
+      onMessage: (message: any) => void,
+      onClose: () => void,
+      onError: () => void
+    ) {
+      this.serverUrl = serverUrl
+      this.onMessage = onMessage
+      this.onClose = onClose
+      this.onError = onError
     }
 
-    const showStateVerbose = () => {
-      stateVerbose.hidden = false;
-      stateFailed.hidden = true;
-      showStateDialog()
-    }
+    public connect(): void {
+      this.socket = new WebSocket(this.serverUrl)
 
-    const showStateFailed = () => {
-      stateVerbose.hidden = true;
-      stateFailed.hidden = false;
-      showStateDialog()
-    }
+      this.socket.addEventListener("open", () => {
+        console.log(`Connected to the server at ${this.serverUrl}`)
+      })
 
-    const hideStateDialog = () => {
-      stateDialog.classList.remove("show");
-      setTimeout(() => {
-        stateDialog.close();
-      }, 200);
-    }
-
-    const showSpinner = () => {
-      stateSpinner.hidden = false;
-      stateChartProgress.hidden = true;
-    }
-
-    const showChart = () => {
-      stateSpinner.hidden = true;
-      stateChartProgress.hidden = false;
-    }
-
-    let socket: WebSocket | null = null;
-    const reconnectDelay = 5000;
-
-    // Connect to the websocket server
-    const connect = () => {
-      socket = new WebSocket("ws://localhost:5000")
-
-      socket.addEventListener("open", () => {
-        console.log("Connected to the server");
-      });
-
-      socket.addEventListener("message", (event) => {
+      this.socket.addEventListener("message", (event) => {
         try {
-          const message = JSON.parse(event.data);
-
-          if (message.state === "ready") {
-            hideStateDialog();
-            return
-          } else {
-            showStateVerbose();
-          }
-          
-          if (message.state === "training_model") 
-            showChart()
-          else
-            showSpinner()
-
-          if (message.state === "loading_server") {
-            stateDialogH2.innerText = "The server is loading"
-          } else if (message.state === "downloading_songs") {
-            stateDialogH2.innerText = "Downloading songs"
-          } else if (message.state === "downloading_metadata") {
-            stateDialogH2.innerText = "Downloading song's metadata"
-          } else if (message.state === "processing_songs") {
-            stateDialogH2.innerText = "Processing songs"
-          } else if (message.state === "loading_model") {
-            stateDialogH2.innerText = "The model is loading"
-          } else if (message.state === "training_model") {
-            stateDialogH2.innerText = "The model is being trained"
-            if (message.data) {
-              const data = message.data as TrainingData;
-              chartManager.update(data)
-            }
-          } 
+          const message = JSON.parse(event.data)
+          this.onMessage(message)
         } catch (error) {
-          console.error("Error parsing message: ", error);
-          return;
+          console.error(`Error parsing message: ${error}`)
         }
       })
 
-      socket.addEventListener("close", () => {
-        console.log("Disconnected from the server");
-        showStateFailed();
-        attemptReconnect();
-      });
+      this.socket.addEventListener("close", () => {
+        console.log(`Disconnected from the server at ${this.serverUrl}`)
+        this.onClose()
+        this.attemptReconnect()
+      })
 
-      socket.addEventListener("error", (error) => {
-        console.error("WebSocket error: ", error);
-        showStateFailed();
-        socket?.close();
-      });
+      this.socket.addEventListener("error", (error) => {
+        console.error(`WebSocket error: ${error}`)
+        this.onError()
+        this.socket?.close()
+      })
     }
 
-    const attemptReconnect = () => {
-      setTimeout(connect, reconnectDelay)
+    private attemptReconnect(): void {
+      setTimeout(() => this.connect(), this.reconnectDelay)
     }
 
-    connect();
+    public send(data: any): void {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify(data))
+      } else {
+        console.error("WebSocket is not open. Cannot send data.")
+      }
+    }
+
+    public close(): void {
+      if (this.socket) {
+        this.socket.close()
+      }
+    }
   }
 
-  // So much mess for a simple & smooth stop animation, hate you pseudo-elements
-  const handleListeningButton = () => {
-    const listeningButton = document.getElementById("listeningButton");
-    if (!listeningButton) return;
+  class StateDialogManager {
+    private readonly dialog: HTMLDialogElement
+    private readonly verboseSection: HTMLDivElement
+    private readonly failedSection: HTMLDivElement
+    private readonly spinner: HTMLDivElement
+    private readonly chartProgress: HTMLDivElement
+    private readonly heading: HTMLHeadingElement
+    private readonly paragraph: HTMLParagraphElement
 
-    const animationDurations = {
+    constructor(dialogId: string) {
+      this.dialog = document.getElementById(dialogId) as HTMLDialogElement
+
+      if (!this.dialog) {
+        throw new Error(`Dialog with ID ${dialogId} not found`)
+      }
+
+      this.verboseSection = this.dialog.querySelector("#stateVerbose") as HTMLDivElement
+      this.failedSection = this.dialog.querySelector("#stateFailed") as HTMLDivElement
+      this.spinner = this.dialog.querySelector("#spinner") as HTMLDivElement
+      this.chartProgress = this.dialog.querySelector("#chart_progress") as HTMLDivElement
+      this.heading = this.dialog.querySelector("h2") as HTMLHeadingElement
+      this.paragraph = this.dialog.querySelector("p") as HTMLParagraphElement
+
+      this.validateElements()
+    }
+
+    private validateElements(): void {
+      if (!this.verboseSection || !this.failedSection || !this.spinner || !this.chartProgress || !this.heading || !this.paragraph) {
+        throw new Error("One or more required elements are missing in the dialog")
+      }
+    }
+
+    public showVerbose(): void {
+      this.verboseSection.hidden = false
+      this.failedSection.hidden = true
+      this.showDialog()
+    }
+
+    public showFailed(): void {
+      this.verboseSection.hidden = true
+      this.failedSection.hidden = false
+      this.showDialog()
+    }
+
+    private showDialog(): void {
+      this.dialog.showModal()
+      this.dialog.classList.add("show")
+    }
+
+    public hideDialog(): void {
+      this.dialog.classList.remove("show")
+      setTimeout(() => {
+        this.dialog.close()
+      }, 200)
+    }
+
+    public showSpinner(): void {
+      this.spinner.hidden = false
+      this.chartProgress.hidden = true
+    }
+
+    public showChart(): void {
+      this.spinner.hidden = true
+      this.chartProgress.hidden = false
+    }
+
+    public updateHeading(text: string): void {
+      this.heading.innerText = text
+    }
+
+    public updateParagraph(text: string): void {
+      this.paragraph.innerText = text
+    }
+  }
+
+  class AudioRecorder {
+    private mediaRecorder: MediaRecorder | null = null
+    private recordingInterval: NodeJS.Timeout | null = null
+    private readonly webSocket: WebSocket
+
+    constructor(webSocket: WebSocket) {
+      this.webSocket = webSocket
+    }
+
+    public async start(maxDuration = 21000, transmissionInterval = 3000): Promise<void> {
+      try {
+        await this.startRecordingCycle(transmissionInterval)
+
+        this.recordingInterval = setInterval(() => {
+          this.startRecordingCycle(transmissionInterval)
+        }, transmissionInterval)
+
+        setTimeout(() => this.stop(), maxDuration)
+      } catch (error) {
+        this.handleError(error as Error)
+      }
+    }
+
+    private async startRecordingCycle(transmissionInterval: number): Promise<void> {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm; codecs=opus" })
+
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          const blob = new Blob([event.data], { type: "audio/webm; codecs=opus" })
+          this.webSocket.send(blob)
+          this.mediaRecorder?.stop()
+        }
+      }
+
+      this.mediaRecorder.start()
+
+      setTimeout(() => {
+        if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+          this.mediaRecorder.requestData()
+        }
+      }, transmissionInterval)
+    }
+
+    private handleError(error: Error): void {
+      const errorMessages: Record<string, string> = {
+        NotAllowedError: "Microphone access denied. Please allow access to the microphone in your browser settings.",
+        NotFoundError: "No microphone found. Please connect a microphone and try again.",
+        NotReadableError: "Microphone is not readable. Please check your microphone settings.",
+        OverconstrainedError: "Microphone constraints are not met. Please check your microphone settings."
+      }
+
+      if (error.name in errorMessages) {
+        alert(errorMessages[error.name])
+      } else {
+        console.error("Error starting audio recording: ", error)
+      }
+    }
+
+    public stop(): void {
+      if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+        this.mediaRecorder.stop()
+      }
+      if (this.recordingInterval) {
+        clearInterval(this.recordingInterval)
+        this.recordingInterval = null
+      }
+    }
+  }
+
+  class ListeningButtonAnimator {
+    private readonly button: HTMLElement
+    private startAnimationTime = 0
+    private animationIsRunning = false
+    private animationIsStopping = false
+    private readonly animationDurations: Record<string, number> = {
       "--listening-play-state-1": 1000,
       "--listening-play-state-2": 1500
     }
-    const gapDuration = 500;
+    private readonly gapDuration = 500
 
-    let startAnimationTime = 0;
-    let animationIsRunning = false;
-    let animationIsStopping = false
+    constructor(buttonId: string) {
+      this.button = document.getElementById(buttonId) as HTMLElement
 
-    const getClosestAnimationName = (delta: number) => {
-      return Object.keys(animationDurations).reduce((prev, curr) => {
-        const prevDuration = animationDurations[prev as keyof typeof animationDurations];
-        const currDuration = animationDurations[curr as keyof typeof animationDurations];
+      if (!this.button) {
+        throw new Error(`Button with ID ${buttonId} not found`)
+      }
+    }
 
-        const prevDivision = delta / prevDuration
-        const currDivision = delta / currDuration
+    public startAnimation(): void {
+      if (this.animationIsRunning) return
+
+      this.startAnimationTime = Date.now()
+      this.button.classList.add("listening")
+      this.animationIsRunning = true
+    }
+
+    public stopAnimation(): void {
+      if (!this.animationIsRunning || this.animationIsStopping) return
+
+      this.animationIsStopping = true
+
+      this.button.addEventListener("animationiteration", (e) => {
+        const delta = Date.now() - this.startAnimationTime
+        const closestName = this.getClosestAnimationName(delta)
+        this.pauseAnimation(this.button, closestName)
+
+        setTimeout(() => {
+          this.button.classList.remove("listening")
+          this.animationIsStopping = false
+          this.animationIsRunning = false
+        }, this.gapDuration)
+      })
+    }
+
+    private getClosestAnimationName(delta: number): string {
+      return Object.keys(this.animationDurations).reduce((prev, curr) => {
+        const prevDuration = this.animationDurations[prev as keyof typeof this.animationDurations];
+        const currDuration = this.animationDurations[curr as keyof typeof this.animationDurations];
+
+        const prevDivision = delta / prevDuration;
+        const currDivision = delta / currDuration;
 
         const prevDelta = Math.abs(Math.round(prevDivision) - prevDivision);
         const currDelta = Math.abs(Math.round(currDivision) - currDivision);
 
         return prevDelta < currDelta ? prev : curr;
-      })
+      });
     }
 
-    const pauseAnimation = (el: HTMLElement, animationName: string) => {
-      el.style.setProperty(animationName, "paused");
-    }
-    
-    const resumeAllAnimations = (el: HTMLElement) => {
-      Object.keys(animationDurations).forEach((name) => {
-        el.style.setProperty(name, "running");
-      })
+    private pauseAnimation(el: HTMLElement, animationName: string): void {
+      el.style.setProperty(animationName, "paused")
     }
 
-    const stopAnimation = (el: HTMLElement) => {
-      el.addEventListener("animationiteration", (e) => {
-        const delta = Date.now() - startAnimationTime
-        const closestName = getClosestAnimationName(delta);
-        pauseAnimation(listeningButton, closestName);
+    public isAnimating(): boolean {
+      return this.animationIsRunning
+    }
+  }
 
-        setTimeout(() => {
-          el.classList.remove("listening");
-          resumeAllAnimations(el)
-          animationIsStopping = false;
-          animationIsRunning = false;
-        }, gapDuration)
+  function initializeServerState(): void {
+    const modelTrainingChart = document.getElementById("modelTrainingChart") as HTMLCanvasElement
+    const modelTrainingProgress = document.getElementById("modelTrainingProgress") as HTMLProgressElement
+    const modelTrainingProgressText = document.getElementById("modelTrainingProgressText") as HTMLParagraphElement
+    const modelTrainingETA = document.getElementById("modelTrainingETA") as HTMLParagraphElement
 
-        startAnimationTime = 0;
-      }, { once: true });
+    if (!modelTrainingChart || !modelTrainingProgress || !modelTrainingProgressText || !modelTrainingETA) {
+      console.error("One or more required elements are missing")
+      return
     }
 
-    const startAnimation = (el: HTMLElement) => {
-      startAnimationTime = Date.now();
-      el.classList.add("listening");
-    }
+    const uiManager = new UIManager(modelTrainingProgress, modelTrainingProgressText, modelTrainingETA)
+    const chartManager = new ChartManager(modelTrainingChart, uiManager)
+    const dialogManager = new StateDialogManager("stateDialog")
 
-    listeningButton.addEventListener("click", (e) => {
-      const el = e.currentTarget as HTMLElement;
-
-
-      if (!el.classList.contains("listening") && !animationIsRunning) {
-        startAnimation(el);
-        animationIsRunning = true;
+    const handleServerMessage = (message: any) => {
+      if (message.state === "ready") {
+        dialogManager.hideDialog()
+        return
       } else {
-        if (animationIsStopping) return;
+        dialogManager.showVerbose()
+      }
 
-        animationIsStopping = true
-        stopAnimation(el);
+      if (message.state === "training_model") {
+        dialogManager.showChart()
+      } else {
+        dialogManager.showSpinner()
+      }
+
+      const stateHeadings: Record<string, string> = {
+        loading_server: "The server is loading",
+        downloading_songs: "Downloading songs",
+        downloading_metadata: "Downloading song's metadata",
+        processing_songs: "Processing songs",
+        loading_model: "The model is loading",
+        training_model: "The model is being trained",
+        storing_embeddings: "Storing embeddings",
+      }
+
+      if (message.state in stateHeadings) {
+        dialogManager.updateHeading(stateHeadings[message.state])
+      }
+
+      if (message.state === "training_model" && message.data) {
+        const data = message.data as TrainingData
+        chartManager.update(data)
+      }
+    }
+
+    const stateWebSocketManager = new StateWebSocketManager(
+      "ws://localhost:5000",
+      handleServerMessage,
+      () => dialogManager.showFailed(),
+      () => dialogManager.showFailed()
+    )
+
+    stateWebSocketManager.connect()
+  }
+
+  function initializePredictionServer(): WebSocket {
+    const predictionSocket = new WebSocket("ws://localhost:5001");
+
+    predictionSocket.addEventListener("open", () => {
+      console.log("Connected to the prediction server");
+    });
+
+    predictionSocket.addEventListener("message", (event) => {
+      console.log(event);
+    });
+
+    predictionSocket.addEventListener("close", () => {
+      console.log("Disconnected from the prediction server");
+    });
+
+    predictionSocket.addEventListener("error", (error) => {
+      console.error("WebSocket error: ", error);
+    });
+
+    return predictionSocket;
+  }
+
+  function initializeListeningButton(): void {
+    const predictionSocket = initializePredictionServer()
+    const buttonAnimator = new ListeningButtonAnimator("listeningButton")
+    const audioRecorder = new AudioRecorder(predictionSocket)
+
+    const listeningButton = document.getElementById("listeningButton") as HTMLElement
+    if (!listeningButton) {
+      console.error("Listening button not found")
+      return
+    }
+
+    listeningButton.addEventListener("click", () => {
+      if (!buttonAnimator.isAnimating()) {
+        buttonAnimator.startAnimation()
+        audioRecorder.start()
+      } else {
+        audioRecorder.stop()
+        buttonAnimator.stopAnimation()
       }
     })
   }
 
-  handleListeningButton()
-  handleServerState()
+  function initializeApp(): void {
+    initializeServerState()
+    initializeListeningButton()
+  }
+
+  initializeApp()
 </script>
