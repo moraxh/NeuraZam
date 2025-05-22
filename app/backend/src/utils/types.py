@@ -1,15 +1,12 @@
-import os
 from enum import Enum
-
-# Create cache path if not exists
-CACHE_PATH = "cache"
-os.makedirs(CACHE_PATH, exist_ok=True)
 
 class ServerState(str, Enum):
   LOADING_SERVER = "loading_server",
   DOWNLOADING_SONGS = "downloading_songs",
   DOWNLOADING_METADATA = "downloading_metadata",
   PROCESSING_SONGS = "processing_songs",
+  EXTRACTING_FEATURES = "extracting_features",
+  AUGMENTING_SONGS = "augmenting_songs",
   LOADING_MODEL = "loading_model",
   TRAINING_MODEL = "training_model",
   STORING_EMBEDDINGS = "storing_embeddings",
@@ -19,3 +16,8 @@ class ValidationException(Exception):
   def __init__(self, message):
     super().__init__(message)
     self.message = message
+
+current_state = {
+  'state': ServerState.LOADING_SERVER,
+  'data': []
+}

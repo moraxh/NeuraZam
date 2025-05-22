@@ -1,42 +1,51 @@
 import os
 import time
-import json
-import faiss
-import torch
-import logging
+import torch 
+import matplotlib
+matplotlib.use('Agg')
+import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from torch.cuda import is_available
-from utils.types import ServerState
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from sklearn.manifold import TSNE
+from utils.logger_config import logger
 from torch.utils.data import DataLoader
 from torch.amp import GradScaler, autocast
-from utils.songs import CACHE_PATH, METADATA_FILE
-from pytorch_metric_learning import miners, losses
-from datasets import CLASS_MAP_CACHE, get_spectograms
-from sklearn.metrics import silhouette_score
-
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import normalize
+from sklearn.metrics import silhouette_score
+from utils.types import ServerState, current_state
+from models.datasets import get_subsets_spectograms
+from pytorch_metric_learning import miners, losses, distances
+from utils.constants import DEVICE, EMBEDDINGS_PLOT_FILE, TRAINED_MODEL_FILE, EMBEDDINGS_FILE, BATCH_SIZE, SHUFFLE, NUM_WORKERS, DEVICE
 
-EMBEDDINGS_FILE = f"{CACHE_PATH}/embeddings.faiss"
-EMBEDDINGS_METADATA_FILE = f"{CACHE_PATH}/embeddings_metadata.json"
-TRAINED_MODEL_PATH = f"{CACHE_PATH}/model.pt"
-TRAINED_MODEL_INFO_PATH = f"{CACHE_PATH}/model_info.json"
+class ResidualBlock(nn.Module):
+  def __init__(self, in_channels, out_channels, stride=1):
+    super(ResidualBlock, self).__init__()
+    
+    self.conv_block = nn.Sequential(
+      nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False),
+      nn.BatchNorm2d(out_channels),
+      nn.ReLU(inplace=True),
+      nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+      nn.BatchNorm2d(out_channels),
+    )
 
-# Hyperparameters
-BATCH_SIZE = 16
-NUM_WORKERS = 2
-SHUFFLE = True
+    self.shortcut = nn.Sequential()
+    if in_channels != out_channels or stride != 1:
+      self.shortcut = nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+        nn.BatchNorm2d(out_channels),
+      )
 
-def get_device():
-  return 'cuda' if is_available() else 'cpu'
+  def forward(self, x):
+    out = self.conv_block(x)
+    out += self.shortcut(x)
+    return F.relu(out)
 
-device = get_device()
-logging.info(f"Using device: {device}")
 
 class CNN(nn.Module):
-  def __init__(self, output_size=512):
+  def __init__(self, output_size=256):
     super(CNN, self).__init__()
 
     self.conv_block = nn.Sequential(
@@ -44,36 +53,32 @@ class CNN(nn.Module):
       nn.BatchNorm2d(32),
       nn.ReLU(),
       nn.Dropout2d(0.1),
-      nn.MaxPool2d(2),
+      nn.MaxPool2d((2, 1)),
       
-      nn.Conv2d(32, 64, kernel_size=3, padding=1),
-      nn.BatchNorm2d(64),
-      nn.ReLU(),
-      nn.Dropout2d(0.1),
-      nn.MaxPool2d(2),
+      ResidualBlock(32, 64, stride=1),
+      nn.MaxPool2d((2, 2)),
 
-      nn.Conv2d(64, 128, kernel_size=3, padding=1),
-      nn.BatchNorm2d(128),
-      nn.ReLU(),
-      nn.Dropout2d(0.1),
-      nn.MaxPool2d(2),
+      ResidualBlock(64, 128, stride=1),
+      nn.MaxPool2d((2, 2)),
 
-      nn.Conv2d(128, 256, kernel_size=3, padding=1),
-      nn.BatchNorm2d(256),
-      nn.ReLU(),
+      ResidualBlock(128, 256, stride=1),
 
       nn.AdaptiveAvgPool2d((4, 4)),
     )
 
     self.embedding = nn.Sequential(
       nn.Flatten(),
-      nn.Linear(256 * 4 * 4, 256),
+      nn.Linear(256 * 4 * 4, 512),
+      nn.BatchNorm1d(512),
       nn.ReLU(),
-      nn.Dropout(0.2),
+      nn.Dropout(0.4),
+      nn.Linear(512, 256),
+      nn.BatchNorm1d(256),
+      nn.ReLU(),
       nn.Linear(256, output_size),
     )
 
-    self.scaler = GradScaler(device)
+    self.scaler = GradScaler(DEVICE)
 
     self.history = {'train_loss': [], 'val_loss': []}
     self.training_ETA = 0.0
@@ -82,22 +87,23 @@ class CNN(nn.Module):
     self.is_model_trained = False
   
   def forward(self, x):
-    x = x.unsqueeze(1)
+    if x.dim() > 4:
+      x = x.squeeze(1)
 
     x = self.conv_block(x)
     x = self.embedding(x)
 
     return x
 
-  def fit(self, train_loader, test_loader, epochs=50, learning_rate=0.001, patience=7):
+  def fit(self, train_loader, test_loader, epochs=50, learning_rate=0.001, patience=10):
     self.total_epochs = epochs
     training_epoch_duration = []
 
-    loss_function = losses.TripletMarginLoss(margin=0.5)
-    miner = miners.TripletMarginMiner(margin=0.5, type_of_triplets="semi-hard")
+    loss_function = losses.TripletMarginLoss(margin=0.8, distance=distances.CosineSimilarity())
+    miner = miners.TripletMarginMiner(margin=0.8, type_of_triplets="semihard", distance=distances.CosineSimilarity())
 
     optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=patience)
 
     best_val_loss = float('inf')
     patience_counter = 0
@@ -110,13 +116,14 @@ class CNN(nn.Module):
       self.current_epoch = epoch
 
       for spectogram, label in train_loader:
-        spectogram = spectogram.to(device, non_blocking=True)
-        labels = label.to(device, non_blocking=True)
+        spectogram = spectogram.to(DEVICE, non_blocking=True)
+        labels = label.to(DEVICE, non_blocking=True)
 
         optimizer.zero_grad()
 
-        with autocast(device_type=device):
+        with autocast(device_type=DEVICE):
           embeddings = self(spectogram)
+          embeddings = F.normalize(embeddings, p=2, dim=1)
           hard_triplets = miner(embeddings, labels)
           loss = loss_function(embeddings, labels, hard_triplets)
         
@@ -135,28 +142,29 @@ class CNN(nn.Module):
       self.eval()
       with torch.no_grad():
         for spectogram, labels in test_loader:
-          spectogram = spectogram.to(device, non_blocking=True)
-          labels = labels.to(device, non_blocking=True)
+          spectogram = spectogram.to(DEVICE, non_blocking=True)
+          labels = labels.to(DEVICE, non_blocking=True)
 
-          with autocast(device_type=device):
+          with autocast(device_type=DEVICE):
             embeddings = self(spectogram)
+            embeddings = F.normalize(embeddings, p=2, dim=1)
             hard_triplets = miner(embeddings, labels)
             loss = loss_function(embeddings, labels, hard_triplets)
           val_loss += loss.item()
       
       avg_val_loss = val_loss / len(test_loader)
-      self.history['val_loss'].append(avg_val_loss)
+      self.history['val_loss'].append(avg_val_loss) 
       scheduler.step(avg_val_loss)
 
       # Early stopping
-      if val_loss < best_val_loss:
-        best_val_loss = val_loss
+      if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
         best_model_state = self.state_dict()    
         patience_counter = 0
       else:
         patience_counter += 1
         if patience_counter >= patience:
-          logging.info(f"Early stopping at epoch {epoch}/{epochs}")
+          logger.info(f"Early stopping at epoch {epoch}/{epochs}")
           break
 
       # Calculate the training ETA
@@ -164,48 +172,50 @@ class CNN(nn.Module):
       training_epoch_duration.append(elapsed_time)
       self.training_ETA = (sum(training_epoch_duration) / (self.current_epoch + 1)) * (self.total_epochs - self.current_epoch)
 
-      logging.info(f"Epoch {self.current_epoch}/{self.total_epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f} - ETA: {self.training_ETA:.2f}s")
+      logger.info(f"Epoch {self.current_epoch}/{self.total_epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f} - ETA: {self.training_ETA:.2f}s")
     
     if best_model_state:
       self.load_state_dict(best_model_state)
-      logging.info(f"Best model loaded from epoch {self.current_epoch}/{self.total_epochs}")
+      logger.info(f"Best model loaded from epoch {self.current_epoch}/{self.total_epochs}")
     self.is_model_trained = True
 
   def predict(self, X):
     self.eval()
 
     X = torch.as_tensor(X, dtype=torch.float32)
-    
+
     if isinstance(X, list):
-      X = torch.stack(X)
+        X = torch.stack(X)
     elif X.ndim == 2:
-      X = X.unsqueeze(0)
+        X = X.unsqueeze(0)
 
-    X = X.to(device)
+    X = X.to(DEVICE)
 
-    with torch.no_grad(), autocast(device_type=device):
-      embeddings = self(X)
+    with torch.no_grad(), autocast(device_type=DEVICE):
+      emb = self(X)
+      emb = torch.nn.functional.normalize(emb, p=2, dim=1)
 
-    return embeddings.cpu()
+    return emb.cpu()
 
   def save_trained_model(self):
-    # Save the model
-    torch.save(self.state_dict(), TRAINED_MODEL_PATH)
+    torch.save(self.state_dict(), TRAINED_MODEL_FILE)
+    logger.info(f"Model saved to {TRAINED_MODEL_FILE}")
 
-    logging.info(f"Model saved to {TRAINED_MODEL_PATH}")
-
-    # Save the training info
-    training_info = {
-      'total_epochs': self.total_epochs,
-      'current_epoch': self.current_epoch,
-      'train_loss': self.history['train_loss'],
-      'val_loss': self.history['val_loss']
+  def load_trained_model(self):
+    map_location = torch.device(DEVICE)
+    self.load_state_dict(torch.load(TRAINED_MODEL_FILE, map_location=map_location))
+    self.eval()
+    self.is_model_trained = True
+  
+  def get_training_progress(self):
+    return {
+        'is_model_trained': self.is_model_trained,
+        'ETA': self.training_ETA,
+        'current_epoch': self.current_epoch,
+        'total_epochs': self.total_epochs,
+        'train_loss': self.history['train_loss'],
+        'val_loss': self.history['val_loss'],
     }
-    
-    with open(TRAINED_MODEL_INFO_PATH, 'w') as f:
-      json.dump(training_info, f)
-
-    logging.info(f"Model info saved to {TRAINED_MODEL_INFO_PATH}")
   
   def store_embeddings(self, train_loader, test_loader):
     # Check if the model is trained
@@ -220,10 +230,10 @@ class CNN(nn.Module):
 
     # Store the train embeddings
     for spectogram, label in train_loader:
-      spectogram = spectogram.to(device, non_blocking=True)
-      labels = label.to(device, non_blocking=True)
+      spectogram = spectogram.to(DEVICE, non_blocking=True)
+      labels = label.to(DEVICE, non_blocking=True)
 
-      with torch.no_grad(), autocast(device_type=device):
+      with torch.no_grad(), autocast(device_type=DEVICE):
         embeddings = self.predict(spectogram)
       
       train_embeddings.append(embeddings.cpu())
@@ -231,10 +241,10 @@ class CNN(nn.Module):
     
     # Store the test embeddings 
     for spectogram, label in test_loader:
-      spectogram = spectogram.to(device, non_blocking=True)
-      labels = label.to(device, non_blocking=True)
+      spectogram = spectogram.to(DEVICE, non_blocking=True)
+      labels = label.to(DEVICE, non_blocking=True)
 
-      with torch.no_grad(), autocast(device_type=device):
+      with torch.no_grad(), autocast(device_type=DEVICE):
         embeddings = self.predict(spectogram)
       
       test_embeddings.append(embeddings.cpu())
@@ -249,124 +259,73 @@ class CNN(nn.Module):
     embeddings = torch.cat([train_embeddings, test_embeddings])
     labels = torch.cat([train_labels, test_labels])
 
-    print("Shape:", embeddings.shape)
-    print("Mean por dimensión:", embeddings.mean(axis=0)[:5])
-    print("Std por dimensión:", embeddings.std(axis=0)[:5])
-    print("Varianza total:", embeddings.var())
+    logger.info(f"Shape: {embeddings.shape}")
+    logger.info(f"Mean por dimensión: {embeddings.mean(axis=0)[:5]}")
+    logger.info(f"Std por dimensión: {embeddings.std(axis=0)[:5]}")
+    logger.info(f"Varianza total: {embeddings.var()}")
 
     emb_np = embeddings.detach().cpu().numpy()
     labels_np = labels.detach().cpu().numpy()
 
-    score = silhouette_score(emb_np, labels_np)
-    print(f"Silhouette score: {score:.4f}")
+    np.savez_compressed(EMBEDDINGS_FILE, embeddings=emb_np, labels=labels_np)
+
+    # Calculate the silhouette score for train and test sets
+    train_score = silhouette_score(train_embeddings.numpy(), train_labels.numpy())
+    test_score = silhouette_score(test_embeddings.numpy(), test_labels.numpy())
+    logger.info(f"Train Silhouette: {train_score:.4f}, Test Silhouette: {test_score:.4f}")
 
     # Plot
-    tsne = TSNE( n_components=2, perplexity=30, learning_rate='auto', init='random', n_iter=1000, random_state=42)
+    tsne = TSNE( n_components=2, perplexity=30, learning_rate='auto', init='pca', max_iter=1000, random_state=42)
 
-    embeddings_scaled = normalize(embeddings, norm='l2')
-    embeddings_2d = tsne.fit_transform(embeddings_scaled)
+    test_embeddings_scaled = normalize(test_embeddings, norm='l2')
+    test_embeddings_2d = tsne.fit_transform(test_embeddings_scaled)
 
     plt.figure(figsize=(10, 8))
-    plt.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], c=labels, cmap='tab10', s=10)
+    plt.scatter(test_embeddings_2d[:, 0], test_embeddings_2d[:, 1], c=test_labels, cmap='tab10')
     plt.title("t-SNE de los embeddings")
     plt.tight_layout()
-    plt.imsave(f"{CACHE_PATH}/embeddings_tsne.png", embeddings_2d, cmap='tab10')
+    plt.savefig(EMBEDDINGS_PLOT_FILE)
+    plt.close()
 
-    embeddings = nn.functional.normalize(embeddings, p=2, dim=1) # L2 normalization
-
-    index = faiss.IndexFlatIP(embeddings.shape[1])
-    index = faiss.IndexIDMap(index)
-    index.add_with_ids(embeddings.numpy(), labels.numpy())
-
-    faiss.write_index(index, EMBEDDINGS_FILE)
-
-  def load_trained_model(self):
-    # Load the model
-    map_location = torch.device(get_device())
-    self.load_state_dict(torch.load(TRAINED_MODEL_PATH, map_location=map_location))
-    self.eval()
-    self.is_model_trained = True
-
-    # Load the training info
-    with open(TRAINED_MODEL_INFO_PATH, 'r') as f:
-      training_info = json.load(f)
-
-    self.total_epochs = training_info['total_epochs']
-    self.current_epoch = training_info['current_epoch']
-    self.history['train_loss'] = training_info['train_loss']
-    self.history['val_loss'] = training_info['val_loss']
-
-    logging.info(f"Model loaded from {TRAINED_MODEL_PATH}")
-    logging.info(f"Model info loaded from {TRAINED_MODEL_INFO_PATH}")
-
-  def get_training_progress(self):
-    return {
-        'is_model_trained': self.is_model_trained,
-        'ETA': self.training_ETA,
-        'current_epoch': self.current_epoch,
-        'total_epochs': self.total_epochs,
-        'train_loss': self.history['train_loss'],
-        'val_loss': self.history['val_loss'],
-    }
-
-def initialize_model(current_state):
-  logging.info(f"Initializing model...")
-  current_state['state'] = ServerState.LOADING_MODEL
-
-  model = CNN().to(device)
-
-  if torch.__version__ >= '2.0':
-    model = torch.compile(model)
-
-  return model
-def train_model(model, current_state):
-  train_ds, test_ds = get_spectograms()
+def initialize_model() :
+  train_ds, test_ds = get_subsets_spectograms()
 
   # Create DataLoaders for train and test sets
-  train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
-  test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True, persistent_workers=True)
+  train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True)
+  test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=SHUFFLE, num_workers=NUM_WORKERS, pin_memory=True)
 
-  # Check if the model is already trained
-  if (os.path.exists(TRAINED_MODEL_PATH) and os.path.exists(TRAINED_MODEL_INFO_PATH)):
-    logging.info(f"Model already trained. Loading model...")
+  train_model(train_loader, test_loader)
+  store_embeddings(train_loader, test_loader)
+  current_state['state'] = ServerState.READY
+
+def train_model(train_loader, test_loader):
+  current_state['state'] = ServerState.LOADING_MODEL
+  if (os.path.exists(TRAINED_MODEL_FILE)):
+    logger.info(f"Model already trained. Loading model...")
     model.load_trained_model()
-  else:
-    current_state['state'] = ServerState.TRAINING_MODEL
-    logging.info(f"Model not trained. Training model with {device}...")
-    model.fit(train_loader=train_loader, test_loader=test_loader, epochs=100, learning_rate=0.0001)
-    model.save_trained_model()
-    logging.info(f"Model trained and saved.")
+    return
 
-  # Check if the embeddings are already stored
-  if (os.path.exists(EMBEDDINGS_FILE) and os.path.exists(EMBEDDINGS_METADATA_FILE)):
-    logging.info(f"Embeddings already stored")
-  else:
-    current_state['state'] = ServerState.STORING_EMBEDDINGS
-    logging.info(f"Embeddings not stored. Storing embeddings...")
+  current_state['state'] = ServerState.TRAINING_MODEL
+  logger.info(f"Model not trained. Training model with {DEVICE}...")
+  model.fit(train_loader=train_loader, test_loader=test_loader, epochs=50, learning_rate=0.001)
+  model.save_trained_model()
+  logger.info(f"Model trained and saved.")
 
-    model.store_embeddings(train_loader=train_loader, test_loader=test_loader)
-    
-    # Store the metadata
-    with open(CLASS_MAP_CACHE, 'r') as f:
-      class_map = json.load(f)
-    
-    with open(METADATA_FILE, 'r') as f:
-      songs_metadata = json.load(f)
-    
-    metadata = {}
+def store_embeddings(train_loader, test_loader):
+  current_state['state'] = ServerState.STORING_EMBEDDINGS 
 
-    for name, idx in class_map.items():
-      single_metadata = next((song for song in songs_metadata if song['name'] in name), None)
+  if (os.path.exists(EMBEDDINGS_FILE)):
+    logger.info(f"Embeddings already stored")
+    return
 
-      metadata[idx] = {
-        'name': single_metadata.get('name', name),
-        'artist': single_metadata.get('artist', None),
-        'genres': single_metadata.get('genres', []),
-        'year': single_metadata.get('year', None),
-        'cover_url': single_metadata.get('cover_url', None),
-      }
-    
-    with open(EMBEDDINGS_METADATA_FILE, 'w') as f:
-      json.dump(metadata, f)
+  logger.info(f"Embeddings not stored. Storing embeddings...")
+  model.store_embeddings(train_loader=train_loader, test_loader=test_loader)
+  logger.info(f"Embeddings stored.")
 
-  logging.info(f"Embeddings stored.")
+def get_model():
+  return model
+
+model = CNN().to(DEVICE)
+
+if torch.__version__ >= '2.0':
+  model = torch.compile(model)
