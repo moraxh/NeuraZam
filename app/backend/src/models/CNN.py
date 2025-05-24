@@ -48,6 +48,7 @@ class CNN(nn.Module):
   def __init__(self, output_size=256):
     super(CNN, self).__init__()
 
+    # TODO: Try different kernel sizes and strides  
     self.conv_block = nn.Sequential(
       nn.Conv2d(1, 32, kernel_size=3, padding=1),
       nn.BatchNorm2d(32),
@@ -99,8 +100,8 @@ class CNN(nn.Module):
     self.total_epochs = epochs
     training_epoch_duration = []
 
-    loss_function = losses.TripletMarginLoss(margin=0.8, distance=distances.CosineSimilarity())
-    miner = miners.TripletMarginMiner(margin=0.8, type_of_triplets="semihard", distance=distances.CosineSimilarity())
+    loss_function = losses.TripletMarginLoss(margin=0.7, distance=distances.CosineSimilarity())
+    miner = miners.TripletMarginMiner(margin=0.7, type_of_triplets="semihard", distance=distances.CosineSimilarity())
 
     optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=patience)
@@ -297,6 +298,7 @@ def initialize_model() :
   train_model(train_loader, test_loader)
   store_embeddings(train_loader, test_loader)
   current_state['state'] = ServerState.READY
+  logger.info(f"Model initialized and ready to use.")
 
 def train_model(train_loader, test_loader):
   current_state['state'] = ServerState.LOADING_MODEL

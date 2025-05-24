@@ -1,4 +1,5 @@
 import json
+import base64
 import asyncio
 import websockets
 import pandas as pd
@@ -36,47 +37,57 @@ async def model_info_websocket_handler(websocket):
   
 async def predict_websocket_handler(websocket):
   try: 
-    global_mean, global_std = get_global_mean_std()
-    knn = get_KNN()
-    song_info = pd.read_csv(SONGS_DATASET_FILE)
+    if (get_model() and get_model().is_model_trained):
+      global_mean, global_std = get_global_mean_std()
+      knn = get_KNN()
+      song_info = pd.read_csv(SONGS_DATASET_FILE)
     while True:
-      data = await websocket.recv()
+      try:
+        data = await websocket.recv()
+        data = json.loads(data)
 
-      if (get_model().is_model_trained == False):
-        await websocket.send(json.dumps({"error": "Model is not trained yet"}))
-        continue
-
-      if (isinstance(data, bytes)):
-        try:
-          audio_file = get_audio_from_data(data)
-          waveform, sr = get_waveform_n_sr_from_file(audio_file)
-          mel_spec = get_spectogram(waveform)
-
-          # Normalize using the global mean & st
-          mel_spec = (mel_spec - global_mean) / global_std
-
-          emb = get_model().predict(mel_spec)
-
-          pred_id = knn.predict(emb)[0]
-
-          filtered_songs = song_info[song_info['id'] == pred_id]
-          if not filtered_songs.empty:
-            song = filtered_songs.iloc[0]
-            print(song["name"])
-          else:
-            print("No song found with the predicted id")
-            # logger.error(f"No song found with id: {pred_id}")
-            # await websocket.send(json.dumps({"error": "No song found with the predicted id"}))
-            # continue
-        except Exception as e:
-          logger.error(f"Invalid audio data: {e}")
-          await websocket.send(json.dumps({"error": "Invalid audio data"}))
+        if (not(get_model()) or get_model().is_model_trained == False):
+          await websocket.send(json.dumps({"error": "Model is not trained yet"}))
           continue
+
+        if (data.get("action") == "predict"):
+          audio_data = data.get("data")
+
+          if not audio_data:
+            await websocket.send(json.dumps({"error": "No audio data provided"}))
+            continue
+
+          # Get the audio data from the request
+          audio_bytes = base64.b64decode(audio_data)
+
+          try:
+            audio_file = get_audio_from_data(audio_bytes)
+            waveform, _ = get_waveform_n_sr_from_file(audio_file)
+            mel_spec = get_spectogram(waveform)
+
+            # Normalize using the global mean & st
+            mel_spec = (mel_spec - global_mean) / global_std
+
+            emb = get_model().predict(mel_spec)
+
+            pred_id = knn.predict(emb)[0]
+
+            filtered_songs = song_info[song_info['id'] == pred_id]
+
+            if not filtered_songs.empty:
+              song = filtered_songs.iloc[0]
+              await websocket.send(json.dumps({
+                "prediction": song.to_dict(),
+              }))
+          except Exception as e:
+            logger.error(f"Error decoding audio data: {e}")
+            await websocket.send(json.dumps({"error": "Invalid audio data"}))
+      except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON data: {e}")
+        await websocket.send(json.dumps({"error": "Invalid JSON data"}))
+        continue
   except websockets.exceptions.ConnectionClosed:
     await websocket.close()
-  except ValidationException as e:
-    logger.error(f"Validation error: {e}")
-    await websocket.send(json.dumps({"error": "Validation error"}))
   except Exception as e:
     logger.error(f"Error in predict_websocket_handler: {e}")
     await websocket.close()

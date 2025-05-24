@@ -84,9 +84,9 @@ def get_global_mean_std(files=os.listdir(SONGS_DIR)):
       stats = json.load(f)
       return stats["mean"], stats["std"]
 
-  sum_        = 0.0
-  sum_sq      = 0.0
-  count       = 0
+  sum_ = 0.0
+  sum_sq = 0.0
+  count = 0
 
   for file in files:
     file_path = os.path.join(SONGS_DIR, file) 
@@ -210,6 +210,7 @@ def augment_data():
 
     while df[df["song_id"] == song_id].shape[0] < number_of_samples_target:
       # Get a random sample of the original data
+      # TODO: CHeck that the sample is original 
       sample = song_df.sample(n=1, random_state=np.random.randint(0, 10000)).iloc[0]
       segment_file = f"{song_id}_{sample['chunk_id']}.wav"
       file_path = os.path.join(SEGMENTS_DIR, segment_file)
@@ -219,7 +220,6 @@ def augment_data():
       augment = augmentations[aug_name]
 
       waveform, sr = get_waveform_n_sr_from_file(file_path)
-      mel_spec = get_spectogram(waveform)
       augmented_segment = augment(waveform, sample_rate=TARGET_SAMPLE_RATE)['samples']
       mel_spec = get_spectogram(augmented_segment)
       mel_spec = (mel_spec - global_mean) / global_std  

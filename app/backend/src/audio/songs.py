@@ -72,6 +72,7 @@ def process_songs():
         "name": song_data["name"],
         "artist": song_data["artist"],
         "genres": song_data["genres"],
+        "cover_url": song_data["cover_url"]
       })
 
       # Rename the song file
