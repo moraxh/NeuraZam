@@ -1,5 +1,9 @@
 ---
   import { Icon } from 'astro-icon/components'
+  import { Image } from 'astro:assets'
+
+  import unknownImage from '@assets/unknown_image.png'
+
   import Spinner from './Spinner.astro'
   import SpinnerFailed from './SpinnerFailed.astro'
 ---
@@ -43,9 +47,43 @@
   </div>
 </dialog>
 
+<dialog id="predictionDialog" class="bg-transparent backdrop:bg-black/70 border-none outline-none absolute min-w-screen w-screen min-h-screen h-screen text-center z-50 top-0">
+  <div id="predictSection" hidden class="bg-neutral-900 border-neutral-700 border-2 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col justify-start items-center m-auto w-96 rounded-2xl p-5 gap-5">
+    <p class="text-2xl !text-white/70">You are listening...</p>
+    <section class="w-full h-full flex flex-col gap-5 items-center">
+      <div class="h-70">
+        <img class="cover absolute h-70 left-1/2 -translate-x-1/2 w-auto rounded-xl aspect-square object-center z-10" src="https://picsum.photos/200" alt="Cover Image">
+        <img class="cover absolute h-70 left-1/2 -translate-x-1/2 w-auto rounded-xl aspect-square object-center blur" src="https://picsum.photos/200" alt="Cover Image">
+      </div>
+      <div class="flex flex-col items-center gap-2">
+        <h2 id="songName" class="text-3xl">SongName</h2>
+        <h3 id="artistName" class="text-2xl !text-white/80">artistName</h3>
+        <p id="genres" class="text-xl !text-white/30">Generos</p>
+      </div>
+    </section>
+    <button class="closeBtn glow bg-primary rounded-full w-[80%] h-12 hover:cursor-pointer hover:bg-primary/80 text-xl">
+      Ok
+    </button>
+  </div>
+
+  <div id="unknownSection" class="bg-neutral-900 border-neutral-700 border-2 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col justify-start items-center m-auto w-96 rounded-2xl p-5 gap-5">
+    <p class="text-2xl !text-white/70">Ups... we couldn't identify the song</p>
+
+    <section class="w-full h-full flex flex-col gap-5 items-center">
+      <div class="h-56">
+        <Image src={unknownImage} class="absolute h-56 left-1/2 -translate-x-1/2 w-auto object-contain mix-blend-lighten" alt="Unknown Image" />
+        <Image src={unknownImage} class="absolute h-56 left-1/2 -translate-x-1/2 w-auto object-contain mix-blend-lighten blur opacity-30" alt="Unknown Image" />
+      </div>
+    </section>
+    <button class="closeBtn glow bg-primary rounded-full w-[80%] h-12 hover:cursor-pointer hover:bg-primary/80 text-xl">
+      Ok
+    </button>
+  </div>
+</dialog>
+
 <section class="flex items-center justify-center w-full pt-40">
   <div id="listeningButton">
-    <button class="bg-radial from-primary to-secondary transition-all w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
+    <button class="bg-radial bigGlow from-primary to-secondary transition-all w-60 h-60 rounded-full flex justify-center items-center hover:cursor-pointer hover:scale-105 hover:brightness-90 hover:*:scale-[115%]">
       <Icon class="w-20 h-20" name="lucide:mic" />
     </button>
   </div>
@@ -54,22 +92,26 @@
 <style>
   @import url('../styles/global.css');
 
-  button {
+  .bigGlow {
     filter: drop-shadow(0 0 2rem var(--color-primary-50));
   }
 
-  #stateDialog {
+  .glow {
+    filter: drop-shadow(0 0 1rem var(--color-primary-50));
+  }
+
+  dialog {
     transition: all .2s ease-in-out;
     opacity: 0;
     scale: .5;
   }
 
-  #stateDialog.show {
+  dialog.show {
     opacity: 1;
     scale: 1;
   }
 
-  #stateDialog.show[open]::backdrop {
+  dialog.show[open]::backdrop {
     animation: backdropBlur .2s ease-in-out forwards;
     animation-delay: .2s;
   }
@@ -125,13 +167,11 @@
   .listening:before {
     z-index: 0;
     animation: 1s ease-out rippleAnimation infinite;
-    animation-play-state: var(--listening-play-state-1) !important;
   }
 
   .listening::after {
     z-index: 0;
     animation: 1s .5s ease-out rippleAnimation infinite;
-    animation-play-state: var(--listening-play-state-2) !important;
   }
 </style>
 
@@ -139,11 +179,20 @@
   import { ChartManager, UIManager } from "../lib/chartManager"
   import type { TrainingData } from "../lib/chartManager"
 
-  class StateWebSocketManager {
+  interface Prediction {
+    id: number
+    name: string,
+    artist: string,
+    genres: string,
+    path: string,
+    cover_url: string
+  }
+
+  class WebSocketManager {
     private socket: WebSocket | null = null
     private readonly reconnectDelay = 5000
     private readonly serverUrl: string
-    private readonly onMessage: (message: any) => void
+    public onMessage: (message: any) => void
     private readonly onClose: () => void
     private readonly onError: () => void
 
@@ -204,6 +253,10 @@
       if (this.socket) {
         this.socket.close()
       }
+    }
+
+    public setOnMessage(callback: (message: any) => void): void {
+      this.onMessage = callback
     }
   }
 
@@ -283,17 +336,26 @@
   }
 
   class AudioRecorder {
+    private predictionDialogManager: PredictionDialogManager
     private mediaRecorder: MediaRecorder | null = null
     private recordingInterval: NodeJS.Timeout | null = null
-    private readonly webSocket: WebSocket
+    private recordingTimout: NodeJS.Timeout | null = null
+    private currentStream: MediaStream | null = null
+    private isStopping = false
+    private predictions: Prediction[] = []
+    private readonly webSocket: WebSocketManager
     private readonly listeningButtonAnimator: ListeningButtonAnimator
 
-    constructor(webSocket: WebSocket, listeningButtonAnimator: ListeningButtonAnimator) {
+    constructor(webSocket: WebSocketManager, listeningButtonAnimator: ListeningButtonAnimator, predictionDialogManager: PredictionDialogManager, predictions: Prediction[]) { 
       this.webSocket = webSocket
       this.listeningButtonAnimator = listeningButtonAnimator
+      this.predictionDialogManager = predictionDialogManager
+      this.predictions = predictions
     }
 
-    public async start(maxDuration = 21000, transmissionInterval = 3000): Promise<void> {
+    public async start(maxDuration = 40000, transmissionInterval = 3000): Promise<void> {
+      this.stop()
+
       try {
         await this.startRecordingCycle(transmissionInterval)
 
@@ -301,22 +363,54 @@
           this.startRecordingCycle(transmissionInterval)
         }, transmissionInterval)
 
-        setTimeout(() => this.stop(), maxDuration)
+        this.recordingTimout = setTimeout(() => {
+          this.stop()
+          this.predictions.length = 0
+          this.listeningButtonAnimator.stopAnimation()
+          this.predictionDialogManager.showUnknown()
+        }, maxDuration)
       } catch (error) {
         this.handleError(error as Error)
       }
     }
 
     private async startRecordingCycle(transmissionInterval: number): Promise<void> {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      this.mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm; codecs=opus" })
+      if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+        this.mediaRecorder.stop()
+      }
+
+      if (this.currentStream) {
+        this.currentStream.getTracks().forEach((track) => track.stop())
+        this.currentStream = null
+      }
+
+      this.currentStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      this.mediaRecorder = new MediaRecorder(this.currentStream, {
+        mimeType: "audio/webm; codecs=opus",
+        audioBitsPerSecond: 128000
+      })
 
       this.mediaRecorder.ondataavailable = (event) => {
+        if (this.isStopping) return
         if (event.data.size > 0) {
           const blob = new Blob([event.data], { type: "audio/webm; codecs=opus" })
-          this.webSocket.send(blob)
-          this.mediaRecorder?.stop()
+
+          const reader = new FileReader()
+          reader.readAsDataURL(blob)
+          reader.onloadend = () => {
+            const base64data = reader.result as string
+            const base64Audio = base64data.split(",")[1]
+            this.webSocket.send({
+              action: "predict",
+              data: base64Audio
+            })
+          }
         }
+      }
+
+      this.mediaRecorder.onstop = () => {
+        this.mediaRecorder = null
+        this.isStopping = false
       }
 
       this.mediaRecorder.start()
@@ -324,6 +418,7 @@
       setTimeout(() => {
         if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
           this.mediaRecorder.requestData()
+          this.mediaRecorder.stop()
         }
       }, transmissionInterval)
     }
@@ -344,27 +439,30 @@
     }
 
     public stop(): void {
+      this.isStopping = true
       if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
         this.mediaRecorder.stop()
       }
+
+      if (this.currentStream) {
+        this.currentStream.getTracks().forEach((track) => track.stop())
+        this.currentStream = null
+      }
+
       if (this.recordingInterval) {
         clearInterval(this.recordingInterval)
         this.recordingInterval = null
       }
-      this.listeningButtonAnimator.stopAnimation()
+
+      if (this.recordingTimout) {
+        clearTimeout(this.recordingTimout)
+        this.recordingTimout = null
+      }
     }
   }
 
   class ListeningButtonAnimator {
     private readonly button: HTMLElement
-    private startAnimationTime = 0
-    private animationIsRunning = false
-    private animationIsStopping = false
-    private readonly animationDurations: Record<string, number> = {
-      "--listening-play-state-1": 1000,
-      "--listening-play-state-2": 1500
-    }
-    private readonly gapDuration = 500
 
     constructor(buttonId: string) {
       this.button = document.getElementById(buttonId) as HTMLElement
@@ -375,59 +473,102 @@
     }
 
     public startAnimation(): void {
-      if (this.animationIsRunning) return
-
-      this.startAnimationTime = Date.now()
       this.button.classList.add("listening")
-      this.animationIsRunning = true
     }
 
     public stopAnimation(): void {
-      if (!this.animationIsRunning || this.animationIsStopping) return
-
-      this.animationIsStopping = true
-
-      this.button.addEventListener("animationiteration", (e) => {
-        const delta = Date.now() - this.startAnimationTime
-        const closestName = this.getClosestAnimationName(delta)
-        this.pauseAnimation(this.button, closestName)
-
-        setTimeout(() => {
-          this.button.classList.remove("listening")
-          this.resumeAllAnimations(this.button)
-          this.animationIsStopping = false
-          this.animationIsRunning = false
-        }, this.gapDuration)
-      }, { once: true})
-    }
-
-    private getClosestAnimationName(delta: number): string {
-      return Object.keys(this.animationDurations).reduce((prev, curr) => {
-        const prevDuration = this.animationDurations[prev as keyof typeof this.animationDurations];
-        const currDuration = this.animationDurations[curr as keyof typeof this.animationDurations];
-
-        const prevDivision = delta / prevDuration;
-        const currDivision = delta / currDuration;
-
-        const prevDelta = Math.abs(Math.round(prevDivision) - prevDivision);
-        const currDelta = Math.abs(Math.round(currDivision) - currDivision);
-
-        return prevDelta < currDelta ? prev : curr;
-      });
-    }
-
-    private pauseAnimation(el: HTMLElement, animationName: string): void {
-      el.style.setProperty(animationName, "paused")
-    }
-
-    private resumeAllAnimations(el: HTMLElement): void {
-      Object.keys(this.animationDurations).forEach((name) => {
-        el.style.setProperty(name, "running");
-      });
+      this.button.classList.remove("listening") 
     }
 
     public isAnimating(): boolean {
-      return this.animationIsRunning
+      return this.button.classList.contains("listening")
+    }
+  }
+
+  class PredictionDialogManager {
+    private readonly dialog: HTMLDialogElement
+    private readonly predictionSection: HTMLDivElement
+    private readonly unknownSection: HTMLDivElement
+    private readonly songName: HTMLHeadingElement
+    private readonly artistName: HTMLHeadingElement 
+    private readonly genres: HTMLParagraphElement
+    private readonly covers: NodeListOf<HTMLImageElement>
+
+    constructor(dialogId: string) {
+      this.dialog = document.getElementById(dialogId) as HTMLDialogElement
+
+      if (!this.dialog) {
+        throw new Error(`The dialog element was not found: ${dialogId}`)
+      }
+
+      this.predictionSection = this.dialog.querySelector("#predictSection") as HTMLDivElement
+      this.unknownSection = this.dialog.querySelector("#unknownSection") as HTMLDivElement
+
+      this.songName = this.dialog.querySelector("#songName") as HTMLHeadingElement
+      this.artistName = this.dialog.querySelector("#artistName") as HTMLHeadingElement
+      this.genres = this.dialog.querySelector("#genres") as HTMLParagraphElement
+      this.covers = this.dialog.querySelectorAll(".cover")
+
+
+      // Listeners
+      this.dialog.querySelectorAll(".closeBtn").forEach((button) => {
+        (button as HTMLButtonElement).addEventListener("click", () => {
+          this.hide()
+        })
+      })
+
+      this.dialog.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement
+
+        if (target.id == dialogId) {
+          this.hide()
+        }
+      })
+    }
+
+    public show() {
+      this.dialog.classList.add("show")
+      this.dialog.showModal()
+    }
+
+    public showPrediction(songName: string, artistName: string, genres: string[], cover_url: string) {
+      this.predictionSection.hidden = false
+      this.unknownSection.hidden = true
+
+      this.songName.innerHTML = songName 
+      this.artistName.innerHTML = artistName
+      this.genres.innerHTML = genres.join(', ')
+
+      const timer = setTimeout(() => {
+        this.show()
+      }, 1000)
+
+      let loadedCount = 0
+      this.covers.forEach(cover => {
+        cover.onload = () => {
+          loadedCount++
+          if (loadedCount >= this.covers.length) {
+            clearTimeout(timer)
+            this.show()
+          }
+        }
+        cover.src = cover_url
+      })
+    }
+
+    public showUnknown() {
+      this.predictionSection.hidden = true
+      this.unknownSection.hidden = false
+
+      this.show()
+    }
+
+    public hide() {
+      this.dialog.classList.remove("show")
+
+      setTimeout(() => {
+        this.dialog.close()
+      }, 200)
     }
   }
 
@@ -480,7 +621,7 @@
       }
     }
 
-    const stateWebSocketManager = new StateWebSocketManager(
+    const stateWebSocketManager = new WebSocketManager(
       "ws://localhost:5000",
       handleServerMessage,
       () => dialogManager.showFailed(),
@@ -490,32 +631,66 @@
     stateWebSocketManager.connect()
   }
 
-  function initializePredictionServer(): WebSocket {
-    const predictionSocket = new WebSocket("ws://localhost:5001");
+  function initializePredictionServer(): WebSocketManager {
+    const predictWebSocketManager = new WebSocketManager(
+      "ws://localhost:5001",
+      (message) => {},
+      () => console.log("Disconnected from the prediction server"),
+      () => console.error("Error connecting to the prediction server")  
+    )
 
-    predictionSocket.addEventListener("open", () => {
-      console.log("Connected to the prediction server");
-    });
+    predictWebSocketManager.connect()
 
-    predictionSocket.addEventListener("message", (event) => {
-      console.log(event);
-    });
-
-    predictionSocket.addEventListener("close", () => {
-      console.log("Disconnected from the prediction server");
-    });
-
-    predictionSocket.addEventListener("error", (error) => {
-      console.error("WebSocket error: ", error);
-    });
-
-    return predictionSocket;
+    return predictWebSocketManager
   }
 
   function initializeListeningButton(): void {
+    const predictionDialog = new PredictionDialogManager("predictionDialog")
     const predictionSocket = initializePredictionServer()
+    const predictions: Prediction[] = []
     const buttonAnimator = new ListeningButtonAnimator("listeningButton")
-    const audioRecorder = new AudioRecorder(predictionSocket, buttonAnimator)
+    const audioRecorder = new AudioRecorder(predictionSocket, buttonAnimator, predictionDialog, predictions)
+
+    const predictionOnMessage = (message: any) => {
+      if (message.prediction) {
+        const prediction = message.prediction as Prediction
+
+        console.log(prediction)
+        predictions.push(prediction)
+
+        if (predictions.length >= 3) {
+          // Check if any prediction is more than 50% times 
+          const predictionCounts: Record<string, number> = {}
+          predictions.forEach((pred) => {
+            predictionCounts[pred.id] = (predictionCounts[pred.id] || 0) + 1
+          })
+          const winnerPrediction = Object.entries(predictionCounts).filter(([key, value]) => {
+            return value > Math.floor(predictions.length / 2)
+          })
+
+          if (winnerPrediction.length > 0) {
+            const winnerId = parseInt(winnerPrediction[0][0])
+            const winner = predictions.find((pred) => pred.id === winnerId)
+
+            if (winner) {
+              const name = winner.name
+              const artist = winner.artist
+              const genres = JSON.parse(winner.genres.replace(/'/g, '"'))
+              const cover_url = winner.cover_url
+
+              predictionDialog.showPrediction(name, artist, genres, cover_url)
+              // Clear the predictions
+              predictions.length = 0
+              // Stop the audio recorder
+              audioRecorder.stop()
+              buttonAnimator.stopAnimation()
+            }
+          }
+        }
+      }
+    }
+
+    predictionSocket.setOnMessage(predictionOnMessage)
 
     const listeningButton = document.getElementById("listeningButton") as HTMLElement
     if (!listeningButton) {
@@ -528,7 +703,6 @@
         buttonAnimator.startAnimation()
         audioRecorder.start()
       } else {
-        console.log('Stop')
         audioRecorder.stop()
         buttonAnimator.stopAnimation()
       }

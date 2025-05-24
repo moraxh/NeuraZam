@@ -10,13 +10,6 @@
   --centered-drop-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
-:root {
-  --listening-play-state: running;
-  --listening-opacity: 100%;
-  --listening-play-state-1: running;
-  --listening-play-state-2: running;
-}
-
 * {
   @apply transition-all duration-300 ease-in-out;
   color: white;
