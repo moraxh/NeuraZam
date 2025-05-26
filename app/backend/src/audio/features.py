@@ -22,20 +22,20 @@ augmentations = {
     "background_noise": AddBackgroundNoise(
       p=1,
       background_paths=BACKGROUND_NOISE_DIR,
-      min_snr_in_db=10,
-      max_snr_in_db=20,
+      min_snr_in_db=5,
+      max_snr_in_db=15,
       output_type="dict"
     ),  
     "colored_noise": AddColoredNoise(
       p=1,
-      min_snr_in_db=10,
-      max_snr_in_db=20,
+      min_snr_in_db=5,
+      max_snr_in_db=15,
       output_type="dict"
     ),
     "gain": Gain(
       p=1,  
-      min_gain_in_db=-5,
-      max_gain_in_db=5,
+      min_gain_in_db=-15,
+      max_gain_in_db=0,
       output_type="dict"
     ),
     "pitch_shift": PitchShift(
@@ -199,7 +199,7 @@ def augment_data():
   # Get the number of clases per song_id
   logger.info(df["song_id"].value_counts())
 
-  number_of_samples_target = df["song_id"].value_counts().max() * 1.5
+  number_of_samples_target = df["song_id"].value_counts().max() * 2
 
   logger.info(f"Target number of samples: {number_of_samples_target}")
 

@@ -19,7 +19,7 @@ EMBEDDINGS_PLOT_FILE = f"{CACHE_DIR}/embeddings_plot.png"
 TRAINED_MODEL_FILE = f"{CACHE_DIR}/trained_model.pt"
 
 # SPOTIFY_PLAYLIST_URL=os.getenv("SPOTIFY_PLAYLIST_URL", "https://open.spotify.com/playlist/1Y0Qk1K1DEMXeKgvjjnN7m?si=80a2a297dded480b")
-SPOTIFY_PLAYLIST_URL=os.getenv("SPOTIFY_PLAYLIST_URL", "https://open.spotify.com/playlist/34NbomaTu7YuOYnky8nLXL?si=4bf54104cf4c480c")
+SPOTIFY_PLAYLIST_URL=os.getenv("SPOTIFY_PLAYLIST_URL", "https://open.spotify.com/playlist/35NbomaTu7YuOYnky8nLXL?si=4bf54104cf4c480c")
 
 TARGET_SAMPLE_RATE = 32000
 SEGMENT_DURATION = 3 # seconds

@@ -353,7 +353,7 @@
       this.predictions = predictions
     }
 
-    public async start(maxDuration = 40000, transmissionInterval = 3000): Promise<void> {
+    public async start(maxDuration = 50000, transmissionInterval = 3000): Promise<void> {
       this.stop()
 
       try {
@@ -535,6 +535,8 @@
       this.predictionSection.hidden = false
       this.unknownSection.hidden = true
 
+      genres = genres.map(genre => genre.charAt(0).toUpperCase() + genre.slice(1).toLowerCase())
+
       this.songName.innerHTML = songName 
       this.artistName.innerHTML = artistName
       this.genres.innerHTML = genres.join(', ')
@@ -606,6 +608,8 @@
         downloading_songs: "Downloading songs",
         downloading_metadata: "Downloading song's metadata",
         processing_songs: "Processing songs",
+        extracting_features: "Extracting features",
+        augmenting_songs: "Augmenting songs",
         loading_model: "The model is loading",
         training_model: "The model is being trained",
         storing_embeddings: "Storing embeddings",

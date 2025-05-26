@@ -1,7 +1,8 @@
 import os
 import torch
 import numpy as np
-from utils.constants import SPECTOGRAMS_DIR
+import pandas as pd
+from utils.constants import SPECTOGRAMS_DIR, DATASET_FILE
 from torch.utils.data import Dataset, Subset
 from sklearn.model_selection import train_test_split
 
@@ -10,6 +11,9 @@ class SpectogramDataset(Dataset):
     self.spectograms_files = os.listdir(SPECTOGRAMS_DIR)
     self.spectograms_dir = spectograms_dir
     self.transform = transform
+    dataset = pd.read_csv(DATASET_FILE)
+    self.labels = dataset["song_id"]
+    self.classes = dataset["song_id"].unique()
 
   def __len__(self):
     return len(self.spectograms_files)
@@ -41,7 +45,7 @@ def get_subsets_spectograms():
   dataset = SpectogramDataset()
 
   idx = list(range(len(dataset)))
-  train_idx, test_idx = train_test_split(idx, test_size=0.2, random_state=42)
+  train_idx, test_idx = train_test_split(idx, test_size=0.2, random_state=42, stratify=dataset.labels)
 
   train_subset = Subset(dataset, train_idx)   
   test_subset  = Subset(dataset, test_idx)

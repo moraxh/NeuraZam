@@ -3,7 +3,7 @@ import base64
 import asyncio
 import websockets
 import pandas as pd
-from models.KNN import get_KNN
+import numpy as np
 from models.CNN import get_model
 from utils.logger_config import logger
 from audio.utils import get_audio_from_data
@@ -34,21 +34,21 @@ async def model_info_websocket_handler(websocket):
   except Exception as e:
     logger.error(f"Error in model_info_websocket_handler: {e}")
     await websocket.close()
+
+async def wait_for_model_ready(interval=2):
+  while not get_model() or not get_model().is_model_trained:
+    await asyncio.sleep(interval)
   
 async def predict_websocket_handler(websocket):
   try: 
-    if (get_model() and get_model().is_model_trained):
-      global_mean, global_std = get_global_mean_std()
-      knn = get_KNN()
-      song_info = pd.read_csv(SONGS_DATASET_FILE)
+    logger.info("Waiting for model to be ready...")
+    await wait_for_model_ready()
+    global_mean, global_std = get_global_mean_std()
+    song_info = pd.read_csv(SONGS_DATASET_FILE)
     while True:
       try:
         data = await websocket.recv()
         data = json.loads(data)
-
-        if (not(get_model()) or get_model().is_model_trained == False):
-          await websocket.send(json.dumps({"error": "Model is not trained yet"}))
-          continue
 
         if (data.get("action") == "predict"):
           audio_data = data.get("data")
@@ -68,14 +68,14 @@ async def predict_websocket_handler(websocket):
             # Normalize using the global mean & st
             mel_spec = (mel_spec - global_mean) / global_std
 
-            emb = get_model().predict(mel_spec)
-
-            pred_id = knn.predict(emb)[0]
+            predictions = get_model().predict(mel_spec)
+            pred_id = np.argmax(predictions).item()
 
             filtered_songs = song_info[song_info['id'] == pred_id]
 
             if not filtered_songs.empty:
               song = filtered_songs.iloc[0]
+              logger.info(f"Predicted Song: {song['name']}")
               await websocket.send(json.dumps({
                 "prediction": song.to_dict(),
               }))
