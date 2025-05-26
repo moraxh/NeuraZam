@@ -1,5 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 
+spotdl
 coloredlogs==15.0.1
 matplotlib==3.7.5
 numpy==1.23.5
