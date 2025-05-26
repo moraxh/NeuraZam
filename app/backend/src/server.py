@@ -9,7 +9,7 @@ from utils.logger_config import logger
 from audio.utils import get_audio_from_data
 from utils.constants import SONGS_DATASET_FILE
 from audio.features import get_waveform_n_sr_from_file, get_spectogram, get_global_mean_std
-from utils.types import ValidationException, current_state, ServerState
+from utils.types import current_state, ServerState
 
 async def model_info_websocket_handler(websocket):
   update_interval = 1

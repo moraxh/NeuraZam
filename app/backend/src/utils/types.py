@@ -12,11 +12,6 @@ class ServerState(str, Enum):
   STORING_EMBEDDINGS = "storing_embeddings",
   READY = "ready"
 
-class ValidationException(Exception):
-  def __init__(self, message):
-    super().__init__(message)
-    self.message = message
-
 current_state = {
   'state': ServerState.LOADING_SERVER,
   'data': []

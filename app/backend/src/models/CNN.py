@@ -19,31 +19,6 @@ from models.datasets import get_subsets_spectograms
 from pytorch_metric_learning import miners, losses, distances
 from utils.constants import DEVICE, EMBEDDINGS_PLOT_FILE, TRAINED_MODEL_FILE, EMBEDDINGS_FILE, BATCH_SIZE, SHUFFLE, NUM_WORKERS, DEVICE
 
-class ResidualBlock(nn.Module):
-  def __init__(self, in_channels, out_channels, stride=1):
-    super(ResidualBlock, self).__init__()
-    
-    self.conv_block = nn.Sequential(
-      nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False),
-      nn.BatchNorm2d(out_channels),
-      nn.ReLU(inplace=True),
-      nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-      nn.BatchNorm2d(out_channels),
-    )
-
-    self.shortcut = nn.Sequential()
-    if in_channels != out_channels or stride != 1:
-      self.shortcut = nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-        nn.BatchNorm2d(out_channels),
-      )
-
-  def forward(self, x):
-    out = self.conv_block(x)
-    out += self.shortcut(x)
-    return F.relu(out)
-
-
 class CNN(nn.Module):
   def __init__(self, output_size=256):
     super(CNN, self).__init__()
@@ -56,27 +31,28 @@ class CNN(nn.Module):
       nn.Dropout2d(0.1),
       nn.MaxPool2d((2, 1)),
       
-      ResidualBlock(32, 64, stride=1),
+      nn.Conv2d(32, 64, kernel_size=3, padding=1),
+      nn.BatchNorm2d(64),
+      nn.ReLU(),
       nn.MaxPool2d((2, 2)),
 
-      ResidualBlock(64, 128, stride=1),
+      nn.Conv2d(64, 128, kernel_size=3, padding=1),
+      nn.BatchNorm2d(128),
+      nn.ReLU(),
       nn.MaxPool2d((2, 2)),
 
-      ResidualBlock(128, 256, stride=1),
-
+      nn.Conv2d(128, 256, kernel_size=3, padding=1),
+      nn.BatchNorm2d(256),
+      nn.ReLU(),
       nn.AdaptiveAvgPool2d((4, 4)),
     )
 
     self.embedding = nn.Sequential(
       nn.Flatten(),
-      nn.Linear(256 * 4 * 4, 512),
-      nn.BatchNorm1d(512),
+      nn.Linear(256 * 4 * 4, 1024),
       nn.ReLU(),
-      nn.Dropout(0.4),
-      nn.Linear(512, 256),
-      nn.BatchNorm1d(256),
-      nn.ReLU(),
-      nn.Linear(256, output_size),
+      nn.Dropout(0.3),
+      nn.Linear(1024, output_size),
     )
 
     self.scaler = GradScaler(DEVICE)
@@ -100,10 +76,10 @@ class CNN(nn.Module):
     self.total_epochs = epochs
     training_epoch_duration = []
 
-    loss_function = losses.TripletMarginLoss(margin=0.7, distance=distances.CosineSimilarity())
-    miner = miners.TripletMarginMiner(margin=0.7, type_of_triplets="semihard", distance=distances.CosineSimilarity())
+    loss_function = losses.TripletMarginLoss(margin=0.5, distance=distances.CosineSimilarity())
+    miner = miners.TripletMarginMiner(margin=0.5, type_of_triplets="all", distance=distances.CosineSimilarity())
 
-    optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+    optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=patience)
 
     best_val_loss = float('inf')
