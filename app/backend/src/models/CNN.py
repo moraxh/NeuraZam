@@ -1,8 +1,6 @@
 import os
 import time
 import torch 
-import matplotlib
-matplotlib.use('Agg')
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
@@ -91,7 +89,7 @@ class CNN(nn.Module):
         labels = labels.to(DEVICE, non_blocking=True)
 
         optimizer.zero_grad()
-        with autocast(device_type=DEVICE):
+        with autocast(DEVICE):
           outputs = self(inputs)
           loss = loss_function(outputs, labels)
         
@@ -119,7 +117,7 @@ class CNN(nn.Module):
           inputs = inputs.to(DEVICE, non_blocking=True)
           labels = labels.to(DEVICE, non_blocking=True)
 
-          with autocast(device_type=DEVICE):
+          with autocast(DEVICE):
             outputs = self(inputs)
             loss = loss_function(outputs, labels)
 
@@ -168,7 +166,7 @@ class CNN(nn.Module):
 
     X = X.to(DEVICE)
 
-    with torch.no_grad(), autocast(device_type=DEVICE):
+    with torch.no_grad(), autocast(DEVICE):
       pred = self(X)
 
     return pred.cpu()

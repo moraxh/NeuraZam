@@ -12,11 +12,9 @@ from torch_audiomentations import AddBackgroundNoise, AddColoredNoise, Gain, Pit
 from utils.constants import BACKGROUND_NOISE_DIR, TARGET_SAMPLE_RATE, SONGS_DIR, SPECTOGRAMS_DIR, SEGMENTS_DIR, SEGMENT_DURATION, DATASET_FILE, SONGS_STATS_FILE, DEVICE
 
 mel_spec_transform = torch.nn.Sequential(
-    MelSpectrogram(n_fft=2048, hop_length=512, n_mels=128, f_min=20, f_max=8000),
-    AmplitudeToDB(),
-  )
-# Compile the model
-mel_spec_transform = torch.jit.script(mel_spec_transform.to(DEVICE))
+  MelSpectrogram(n_fft=2048, hop_length=512, n_mels=128, f_min=20, f_max=8000),
+  AmplitudeToDB(),
+).to(DEVICE)  # Move to GPU if available
 
 augmentations = {
     "background_noise": AddBackgroundNoise(
@@ -199,7 +197,7 @@ def augment_data():
   # Get the number of clases per song_id
   logger.info(df["song_id"].value_counts())
 
-  number_of_samples_target = df["song_id"].value_counts().max() * 2
+  number_of_samples_target = df["song_id"].value_counts().max() * 1.5
 
   logger.info(f"Target number of samples: {number_of_samples_target}")
 

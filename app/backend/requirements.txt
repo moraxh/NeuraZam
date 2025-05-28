@@ -7,8 +7,10 @@ numpy==1.23.5
 pandas==1.5.3
 pydub==0.25.1
 scikit_learn==1.2.2
-torch==2.0.1+cu118
-torch_audiomentations==0.11.0
-torchaudio==2.0.2+cu118
 tqdm==4.66.2
 websockets==10.4
+julius
+torch-pitch-shift
+torch-audiomentations==0.11.0
+torchaudio==2.7.0+cu118
+soundfile

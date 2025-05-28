@@ -20,7 +20,7 @@ def download_songs():
 
     # Download songs
     subprocess.run(
-      ["spotdl", SPOTIFY_PLAYLIST_URL, "--bitrate", "96k"],
+      ["spotdl", SPOTIFY_PLAYLIST_URL, "--bitrate", "96k", "--threads", "8", "--output", "{track-id}"],
       check=True,
       cwd=SONGS_DIR,
     )
@@ -58,10 +58,12 @@ def process_songs():
         logger.warning(f"Skipping {song} due to unsupported file extension.")
         continue  
 
-      song_data = next((item for item in metadata if item["name"] in song_name), None)  
+      song_data = next((item for item in metadata if item["song_id"] in song_name), None)  
 
       if song_data is None:
-        logger.warning(f"Song data not found for {song_name}. Skipping...")
+        logger.warning(f"Song data not found for {song_name}. Skipping and deleting song...")
+        # Delete the song file if no metadata is found
+        os.remove(song_path)
         continue
 
       output_path = (f"{i}{song_ext}")
