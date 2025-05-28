@@ -17,13 +17,13 @@ class CNN(nn.Module):
 
     # TODO: Try different kernel sizes and strides  
     self.conv_block = nn.Sequential(
-      nn.Conv2d(1, 32, kernel_size=3, padding=1),
+      nn.Conv2d(1, 32, kernel_size=(3, 7), padding=(1, 3)),
       nn.BatchNorm2d(32),
       nn.ReLU(),
       nn.Dropout2d(0.1),
       nn.MaxPool2d((2, 1)),
       
-      nn.Conv2d(32, 64, kernel_size=3, padding=1),
+      nn.Conv2d(32, 64, kernel_size=(5, 3), padding=(2, 1)),
       nn.BatchNorm2d(64),
       nn.ReLU(),
       nn.MaxPool2d((2, 2)),

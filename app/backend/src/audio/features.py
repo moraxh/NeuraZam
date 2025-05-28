@@ -33,7 +33,7 @@ augmentations = {
     "gain": Gain(
       p=1,  
       min_gain_in_db=-15,
-      max_gain_in_db=0,
+     max_gain_in_db=0,
       output_type="dict"
     ),
     "pitch_shift": PitchShift(
@@ -42,14 +42,6 @@ augmentations = {
       max_transpose_semitones=2,
       sample_rate=TARGET_SAMPLE_RATE,
       output_type="dict"
-    ),
-    "bandpass_filter": BandPassFilter(
-        p=1,
-        min_center_frequency=300.0,
-        max_center_frequency=3400.0,
-        min_bandwidth_fraction=0.5,
-        max_bandwidth_fraction=1.0,
-        output_type="dict"
     ),
   }
 
@@ -159,6 +151,11 @@ def extract_features():
       end = start + segments_samples
       segment = waveform[:, :, start:end]
 
+      rms = torch.sqrt(torch.mean(segment ** 2))
+      if rms < 0.01:
+        logger.warning(f"Skipping segment {chunk_id} of song {song_id} due to low RMS value.")
+        continue
+
       with torch.no_grad():
         mel_spec = get_spectogram(segment)
 
@@ -197,7 +194,7 @@ def augment_data():
   # Get the number of clases per song_id
   logger.info(df["song_id"].value_counts())
 
-  number_of_samples_target = df["song_id"].value_counts().max() * 1.5
+  number_of_samples_target = df["song_id"].value_counts().max() * 1.7
 
   logger.info(f"Target number of samples: {number_of_samples_target}")
 
