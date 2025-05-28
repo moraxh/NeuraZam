@@ -25,8 +25,8 @@ TARGET_SAMPLE_RATE = 32000
 SEGMENT_DURATION = 3 # seconds
 
 # CNN model parameters  
-BATCH_SIZE = 64
-NUM_WORKERS = 2
+BATCH_SIZE = 128
+NUM_WORKERS = 3
 SHUFFLE = True
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
