@@ -2,6 +2,20 @@
 
 A real-time music detection system that uses convolutional neural networks to identify songs from live audio input through the user's microphone.
 
+# Showcase
+
+### Server State (Augmenting Data)
+![Augmenting Data](media/augmenting_songs.png)
+
+### Server State (Training Model)
+![Training Model](media/training.png)
+
+### Frontend
+![Frontend](media/frontend.png)
+
+### Model Predicting
+![Frontend](media/prediction.png)
+
 ## 🎵 Features
 
 - **Real-time detection**: Identifies songs in 3-second segments
@@ -11,7 +25,7 @@ A real-time music detection system that uses convolutional neural networks to id
 - **Data augmentation**: Improves model robustness with audio transformations
 - **Real-time visualization**: Training progress charts with Chart.js
 
-## 🏗️ System Architecture [1](#1-0) 
+## 🏗️ System Architecture 
 
 The system follows a client-server architecture with separate frontend and backend services communicating via WebSockets:
 
@@ -48,7 +62,7 @@ docker-compose up --build
 
 4. Access the application at `http://localhost:3000`
 
-## 🧠 Machine Learning Pipeline [2](#1-1) 
+## 🧠 Machine Learning Pipeline
 
 The system implements a complete ML pipeline:
 
@@ -58,6 +72,10 @@ The system implements a complete ML pipeline:
 4. **CNN training**: Convolutional neural network with early stopping
 5. **Real-time inference**: Live audio classification
 
+### Performance in Testing
+
+In internal tests, the model was successfully trained in **approximately 2 hours** using a dataset of **100 songs**, achieving **over 95% accuracy** in song identification.
+
 ### Model Architecture
 
 - **Input**: Mel spectrograms (128 x time)
@@ -65,7 +83,7 @@ The system implements a complete ML pipeline:
 - **Optimization**: Adam with ReduceLROnPlateau
 - **Regularization**: Dropout, BatchNorm, Early Stopping
 
-## 🎨 Frontend Components [3](#1-2) 
+## 🎨 Frontend Components 
 
 ### Main Components
 
@@ -104,7 +122,7 @@ NeuraZam/
 └── README.md
 ```
 
-## 📊 System States [4](#1-3) 
+## 📊 System States 
 
 The system manages multiple states during operation:
 
@@ -149,7 +167,7 @@ This project is under the MIT License. See `LICENSE` for more details.
 
 ## 🙏 Acknowledgments
 
-- **Spotify API**: For music metadata access
+- **Spotdl**: For music access
 - **PyTorch**: Deep learning framework
 - **Astro**: Modern frontend framework
 - **Chart.js**: Data visualization

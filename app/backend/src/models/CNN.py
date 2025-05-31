@@ -15,7 +15,6 @@ class CNN(nn.Module):
   def __init__(self, n_classes):
     super(CNN, self).__init__()
 
-    # TODO: Try different kernel sizes and strides  
     self.conv_block = nn.Sequential(
       nn.Conv2d(1, 32, kernel_size=(3, 7), padding=(1, 3)),
       nn.BatchNorm2d(32),
